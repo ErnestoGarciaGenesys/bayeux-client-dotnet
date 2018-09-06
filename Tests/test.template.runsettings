@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+
+<!--
+  Make a copy of this file and fill in with your parameters.
+  Run your tests with your file. (In Visual Studio 2017: Test -> Test Settings -> Select Test Settings File)
+-->
+
+<RunSettings>
+  <TestRunParameters>
+    <Parameter name="BaseURL" value="" />
+    
+    <Parameter name="APIKey" value="" />
+    
+    <Parameter name="UserNamePath" value="" />
+    <Parameter name="UserName" value="" />
+    <Parameter name="Password" value="" />
+
+    <Parameter name="ClientId" value="" />
+    <Parameter name="ClientSecret" value="" />
+  </TestRunParameters>
+</RunSettings>
