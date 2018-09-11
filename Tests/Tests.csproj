@@ -61,13 +61,13 @@
     <None Include="test.template.runsettings" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="test.runsettings" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Genesys.Bayeux.Client\Genesys.Bayeux.Client.csproj">
       <Project>{0dcec1e8-cbe2-4f85-a989-fa1a363c04a8}</Project>
       <Name>Genesys.Bayeux.Client</Name>
     </ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="test.runsettings" />
   </ItemGroup>
   <Import Project="$(VSToolsPath)\TeamTest\Microsoft.TestTools.targets" Condition="Exists('$(VSToolsPath)\TeamTest\Microsoft.TestTools.targets')" />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

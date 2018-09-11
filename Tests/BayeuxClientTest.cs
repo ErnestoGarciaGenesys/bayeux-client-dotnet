@@ -82,13 +82,14 @@ namespace Tests
             var token = await Auth.Authenticate(httpClient, BaseURL, credentials);
             httpClient.DefaultRequestHeaders.Add("Authorization", "Bearer " + token);
 
-            var bayeuxClient = new BayeuxClient(httpClient, BaseURL);
-            await bayeuxClient.Handshake();
+            var bayeuxClient = new BayeuxClient(httpClient, BaseURL + "/statistics/v3/notifications");
+            await bayeuxClient.Start();
+            //await bayeuxClient.Handshake();
             await bayeuxClient.Subscribe("/statistics/v3/service");
             await bayeuxClient.Subscribe("/statistics/v3/updates");
             
             var response = await httpClient.PostAsync(
-                "https://gapi-use1.genesyscloud.com/statistics/v3/subscriptions?verbose=INFO",
+                BaseURL + "/statistics/v3/subscriptions?verbose=INFO",
                 new StringContent(
                     JsonConvert.SerializeObject(statistics),
                     Encoding.UTF8,
@@ -99,10 +100,10 @@ namespace Tests
 
             bayeuxClient.MessagesReceived += (e, s) =>
                 Debug.WriteLine("Messages received: " + s);
-
-            bayeuxClient.StartLongPolling();
-
+            
             Thread.Sleep(TimeSpan.FromMinutes(1));
+
+            // TODO: bayeuxClient.Dispose();
         }
 
         [TestMethod]

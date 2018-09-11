@@ -3,15 +3,37 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 
 namespace Genesys.Bayeux.Client
 {
+    // TODO: Implement protocol correctly:
+
+    // https://docs.cometd.org/current/reference/#_messages
+    // All Bayeux messages SHOULD be encapsulated in a JSON encoded array so that multiple messages may be transported together
+
+    // https://docs.cometd.org/current/reference/#_code_successful_code
+    // https://docs.cometd.org/current/reference/#_code_error_code
+    // The boolean successful message field is used to indicate success or failure and MUST be included in responses to the /meta/handshake, /meta/connect, /meta/subscribe, /meta/unsubscribe, /meta/disconnect, and publish channels.
+
+    // https://docs.cometd.org/current/reference/#__bayeux_advice
+    // any Bayeux response message may contain an advice field. Advice received always supersedes any previous received advice.
+
+    // https://docs.cometd.org/current/reference/#_two_connection_operation
+    // Implementations MUST control HTTP pipelining so that req1 does not get queued behind req0 and thus enforce an ordering of responses.
+
+    // https://docs.cometd.org/current/reference/#_connection_negotiation
+    // Bayeux connection negotiation may be iterative and several handshake messages may be exchanged before a successful connection is obtained. Servers may also request Bayeux connection renegotiation by sending an unsuccessful connect response with advice to reconnect with a handshake message.
+
+    // TODO: keep alive, and re-subscribe when reconnected through a different session (different clientId?)
+
+    // TODO: Make thread-safe, or thread-contained.
     public class BayeuxClient
     {
-        public string BaseUrl { get; }
+        public string Url { get; }
 
         public HttpClient HttpClient { get; }
 
@@ -19,48 +41,76 @@ namespace Genesys.Bayeux.Client
 
         int nextId = 0;
 
-        public BayeuxClient(HttpClient httpClient, string baseUrl)
+        public BayeuxClient(HttpClient httpClient, string url)
         {
             HttpClient = httpClient;
-            BaseUrl = baseUrl;
+            Url = url;
         }
 
-        // The "id" field is optional, so this may be not needed
-        int GenerateId()
+        public async Task Start()
         {
-            return nextId++;
+            await Handshake();
+            StartLongPolling();
         }
 
-        public async Task Handshake()
+        class Advice
         {
-            var request = new HttpRequestMessage(HttpMethod.Post, BaseUrl + "/statistics/v3/notifications")
-            {
-                Content = ToJsonContent(
-                    new
-                    {
-                        id = GenerateId(),
-                        channel = "/meta/handshake",
-                        supportedConnectionTypes = new[] { "long-polling" },
-                    })
-            };
+            public long interval;
+            public long timeout;
+            public string reconnect;
+        }
+        // sample advice received: {"interval":0,"timeout":20000,"reconnect":"retry"}
 
-            var httpResponse = await HttpClient.SendAsync(request);
-            var httpResponseContent = await httpResponse.Content.ReadAsStringAsync();
-            Debug.WriteLine(httpResponseContent);
+        class HandshakeResponse
+        {
+            public string successful;
+            public string error;
+            public string clientId;
+            public Advice advice;
+        }
 
-            // If not empty or a JSON array, this will throw a Newtonsoft.Json.JsonSerializationException.
-            var response = JsonConvert.DeserializeObject<List<Dictionary<string, object>>>(httpResponseContent);
-            foreach (var message in response)
+        readonly JsonSerializer jsonSerializer = JsonSerializer.Create();
+
+        // TODO: avoid several handshake requests
+        async Task Handshake()
+        {
+            var httpResponse = await Post(
+                new
+                {
+                    channel = "/meta/handshake",
+                    version = "1.0",
+                    supportedConnectionTypes = new[] { "long-polling" },
+                });
+
+            var responseStream = await httpResponse.Content.ReadAsStreamAsync();
+            var responseList = jsonSerializer.Deserialize<List<HandshakeResponse>>(
+                new JsonTextReader(new StreamReader(responseStream, Encoding.UTF8)));
+            Debug.Assert(responseList.Count == 1);
+            var response = responseList[0];
+
+            if (response.successful != "true")
+                throw new HandshakeException(response.error);
+
+            ClientId = response.clientId;
+
+            FollowAdvice(response.advice);
+        }
+
+        void FollowAdvice(Advice advice)
+        {
+            if (advice != null)
             {
-                message.TryGetValue("clientId", out object clientIdObj);
-                if (clientIdObj is string clientId)
-                    ClientId = clientId;
+                // TODO: follow advice
             }
         }
 
+        // Use an EventArgs subclass?
+        // See https://docs.microsoft.com/en-us/dotnet/standard/design-guidelines/event
+        // https://stackoverflow.com/questions/3880789/why-should-we-use-eventhandler
+        // https://docs.microsoft.com/en-us/dotnet/csharp/programming-guide/events/how-to-publish-events-that-conform-to-net-framework-guidelines
         public event EventHandler<string> MessagesReceived;
         
-        public void StartLongPolling()
+        void StartLongPolling()
         {
             Poll().ContinueWith(task =>
             {
@@ -75,45 +125,41 @@ namespace Genesys.Bayeux.Client
             });
         }
 
-        public async Task<HttpResponseMessage> Subscribe(string channel)
+        public Task<HttpResponseMessage> Subscribe(string channel)
         {
-            return await HttpClient.PostAsync(
-                BaseUrl + "/statistics/v3/notifications",
-                ToJsonContent(
-                    new {       
-                        clientId = ClientId,
-                        channel = "/meta/subscribe",
-                        id = GenerateId(),
-                        subscription = channel,
-                    }));
+            return Post(
+                new {       
+                    clientId = ClientId,
+                    channel = "/meta/subscribe",
+                    subscription = channel,
+                });
         }
 
-        public async Task<HttpResponseMessage> Poll()
+        public Task<HttpResponseMessage> Poll()
         {
             Debug.WriteLine("Polling...");
-            return await HttpClient.PostAsync(
-                BaseUrl + "/statistics/v3/notifications",
-                ToJsonContent(
-                    new
-                    {
-                        clientId = ClientId,
-                        channel = "/meta/connect",
-                        id = GenerateId(),
-                        connectionType = "long-polling",
-                    }));
+            return Post(
+                new
+                {
+                    clientId = ClientId,
+                    channel = "/meta/connect",
+                    connectionType = "long-polling",
+                });
         }
 
-        public async Task<HttpResponseMessage> Disconnect()
+        public Task<HttpResponseMessage> Disconnect()
         {
-            return await HttpClient.PostAsync(
-                BaseUrl + "/statistics/v3/notifications",
-                ToJsonContent(
-                    new
-                    {
-                        clientId = ClientId,
-                        channel = "/meta/disconnect",
-                        id = GenerateId(),
-                    }));
+            return Post(
+                new
+                {
+                    clientId = ClientId,
+                    channel = "/meta/disconnect",
+                });
+        }
+
+        public Task<HttpResponseMessage> Post(object obj)
+        {
+            return HttpClient.PostAsync(Url, ToJsonContent(new[] { obj }));
         }
 
         HttpContent ToJsonContent(object message)
