@@ -140,11 +140,15 @@ namespace Genesys.Bayeux.Client
                 });
         }
 
-        Task<HttpResponseMessage> Post(object obj)
+        Task<HttpResponseMessage> Post(object message)
         {
+            var messageStr = JsonConvert.SerializeObject(new[] { message });
+            Debug.WriteLine("Posting: " + messageStr); // TODO: proper configurable logging
+
             // https://docs.cometd.org/current/reference/#_messages
-            // All Bayeux messages SHOULD be encapsulated in a JSON encoded array so that multiple messages may be transported together
-            return HttpClient.PostAsync(Url, ToJsonContent(new[] { obj }));
+            // All Bayeux messages SHOULD be encapsulated in a JSON encoded array so that multiple messages 
+            // may be transported together
+            return HttpClient.PostAsync(Url, new StringContent(messageStr, Encoding.UTF8, "application/json"));
         }
 
         async Task<BayeuxResponse> Request(object request)
@@ -191,13 +195,6 @@ namespace Genesys.Bayeux.Client
             }
 
             return response;
-        }
-
-        HttpContent ToJsonContent(object message)
-        {
-            var result = JsonConvert.SerializeObject(message);
-            Debug.WriteLine("Posting: " + result); // TODO: proper configurable logging
-            return new StringContent(result, Encoding.UTF8, "application/json"); ;
         }
     }
 }
