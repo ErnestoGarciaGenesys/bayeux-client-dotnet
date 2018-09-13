@@ -74,20 +74,25 @@ namespace Tests
             };
         }
 
-        [TestMethod]
-        public async Task Subscribe_statistic()
+        async Task<HttpClient> InitHttpClient()
         {
             var httpClient = new HttpClient();
             httpClient.DefaultRequestHeaders.Add("x-api-key", APIKey);
             var token = await Auth.Authenticate(httpClient, BaseURL, credentials);
             httpClient.DefaultRequestHeaders.Add("Authorization", "Bearer " + token);
+            return httpClient;
+        }
 
+        [TestMethod]
+        public async Task Subscribe_statistic()
+        {
+            var httpClient = await InitHttpClient();
             var bayeuxClient = new BayeuxClient(httpClient, BaseURL + "/statistics/v3/notifications");
             await bayeuxClient.Start();
-            //await bayeuxClient.Handshake();
             await bayeuxClient.Subscribe("/statistics/v3/service");
             await bayeuxClient.Subscribe("/statistics/v3/updates");
-            
+            await bayeuxClient.Subscribe("pepe");
+
             var response = await httpClient.PostAsync(
                 BaseURL + "/statistics/v3/subscriptions?verbose=INFO",
                 new StringContent(
@@ -107,13 +112,16 @@ namespace Tests
         }
 
         [TestMethod]
-        public void Check_JSON_deserialization()
+        [ExpectedException(typeof(BayeuxRequestFailedException))]
+        // response: {"timestamp":1536851691737,"status":500,"error":"Internal Server Error",
+        // "message":"java.lang.IllegalArgumentException: Invalid channel id: pepe",
+        // "path":"/statistics/v3/notifications"}
+        public async void Subscribe_invalid_channel_id()
         {
-            //var json = "[{\"hello\":\"world\"}]"; // OK
-            //var json = ""; // OK. Returns null
-            var json = "{\"hello\":\"world\"}"; // throws exception, as expected
-            var result = JsonConvert.DeserializeObject<List<Dictionary<string, string>>>(json);
-            Debug.WriteLine(result);
+            var httpClient = await InitHttpClient();
+            var bayeuxClient = new BayeuxClient(httpClient, BaseURL + "/statistics/v3/notifications");
+            await bayeuxClient.Start();
+            await bayeuxClient.Subscribe("pepe");
         }
     }
 }

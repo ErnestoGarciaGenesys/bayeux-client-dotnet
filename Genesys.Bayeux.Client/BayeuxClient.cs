@@ -10,27 +10,19 @@ using System.Threading.Tasks;
 
 namespace Genesys.Bayeux.Client
 {
-    // TODO: Implement protocol correctly:
-
-    // https://docs.cometd.org/current/reference/#_messages
-    // All Bayeux messages SHOULD be encapsulated in a JSON encoded array so that multiple messages may be transported together
-
-    // https://docs.cometd.org/current/reference/#_code_successful_code
-    // https://docs.cometd.org/current/reference/#_code_error_code
-    // The boolean successful message field is used to indicate success or failure and MUST be included in responses to the /meta/handshake, /meta/connect, /meta/subscribe, /meta/unsubscribe, /meta/disconnect, and publish channels.
-
-    // https://docs.cometd.org/current/reference/#__bayeux_advice
-    // any Bayeux response message may contain an advice field. Advice received always supersedes any previous received advice.
-
+    // TODO: Check HTTP pipelining
     // https://docs.cometd.org/current/reference/#_two_connection_operation
     // Implementations MUST control HTTP pipelining so that req1 does not get queued behind req0 and thus enforce an ordering of responses.
 
+    // TODO: Check implementation of negotiation
     // https://docs.cometd.org/current/reference/#_connection_negotiation
     // Bayeux connection negotiation may be iterative and several handshake messages may be exchanged before a successful connection is obtained. Servers may also request Bayeux connection renegotiation by sending an unsuccessful connect response with advice to reconnect with a handshake message.
 
     // TODO: keep alive, and re-subscribe when reconnected through a different session (different clientId?)
 
     // TODO: Make thread-safe, or thread-contained.
+
+    // TODO: Implement IDisposable
     public class BayeuxClient
     {
         public string Url { get; }
@@ -39,11 +31,11 @@ namespace Genesys.Bayeux.Client
 
         public string ClientId { get; private set; }
 
-        int nextId = 0;
-
         public BayeuxClient(HttpClient httpClient, string url)
         {
             HttpClient = httpClient;
+
+            // TODO: allow relative URL to HttpClient.BaseAddress
             Url = url;
         }
 
@@ -61,9 +53,9 @@ namespace Genesys.Bayeux.Client
         }
         // sample advice received: {"interval":0,"timeout":20000,"reconnect":"retry"}
 
-        class HandshakeResponse
+        class BayeuxResponse
         {
-            public string successful;
+            public bool successful;
             public string error;
             public string clientId;
             public Advice advice;
@@ -74,7 +66,7 @@ namespace Genesys.Bayeux.Client
         // TODO: avoid several handshake requests
         async Task Handshake()
         {
-            var httpResponse = await Post(
+            var response = await Request(
                 new
                 {
                     channel = "/meta/handshake",
@@ -82,18 +74,7 @@ namespace Genesys.Bayeux.Client
                     supportedConnectionTypes = new[] { "long-polling" },
                 });
 
-            var responseStream = await httpResponse.Content.ReadAsStreamAsync();
-            var responseList = jsonSerializer.Deserialize<List<HandshakeResponse>>(
-                new JsonTextReader(new StreamReader(responseStream, Encoding.UTF8)));
-            Debug.Assert(responseList.Count == 1);
-            var response = responseList[0];
-
-            if (response.successful != "true")
-                throw new HandshakeException(response.error);
-
             ClientId = response.clientId;
-
-            FollowAdvice(response.advice);
         }
 
         void FollowAdvice(Advice advice)
@@ -101,6 +82,8 @@ namespace Genesys.Bayeux.Client
             if (advice != null)
             {
                 // TODO: follow advice
+                // https://docs.cometd.org/current/reference/#_bayeux_advice
+                // any Bayeux response message may contain an advice field. Advice received always supersedes any previous received advice.
             }
         }
 
@@ -125,13 +108,23 @@ namespace Genesys.Bayeux.Client
             });
         }
 
-        public Task<HttpResponseMessage> Subscribe(string channel)
+        public Task Subscribe(string channel)
         {
-            return Post(
+            return Request(
                 new {       
                     clientId = ClientId,
                     channel = "/meta/subscribe",
                     subscription = channel,
+                });
+        }
+
+        public Task Disconnect()
+        {
+            return Request(
+                new
+                {
+                    clientId = ClientId,
+                    channel = "/meta/disconnect",
                 });
         }
 
@@ -147,25 +140,63 @@ namespace Genesys.Bayeux.Client
                 });
         }
 
-        public Task<HttpResponseMessage> Disconnect()
+        Task<HttpResponseMessage> Post(object obj)
         {
-            return Post(
-                new
-                {
-                    clientId = ClientId,
-                    channel = "/meta/disconnect",
-                });
+            // https://docs.cometd.org/current/reference/#_messages
+            // All Bayeux messages SHOULD be encapsulated in a JSON encoded array so that multiple messages may be transported together
+            return HttpClient.PostAsync(Url, ToJsonContent(new[] { obj }));
         }
 
-        public Task<HttpResponseMessage> Post(object obj)
+        async Task<BayeuxResponse> Request(object request)
         {
-            return HttpClient.PostAsync(Url, ToJsonContent(new[] { obj }));
+            var httpResponse = await Post(request);
+            var responseStr = await httpResponse.Content.ReadAsStringAsync();
+
+            Debug.WriteLine("Received: " + responseStr); // TODO: proper configurable logging
+
+            BayeuxResponse response = ExtractResponse(responseStr);
+
+            if (!response.successful)
+                throw new BayeuxRequestFailedException(response.error);
+
+            // I have received the following non-compliant error response from the Statistics API:
+            // request: [{"clientId":"256fs7hljxavbz317cdt1d7t882v","channel":"/meta/subscribe","subscription":"/pepe"}]
+            // response: {"timestamp":1536851691737,"status":500,"error":"Internal Server Error","message":"java.lang.IllegalArgumentException: Invalid channel id: pepe","path":"/statistics/v3/notifications"}
+
+            FollowAdvice(response.advice);
+
+            return response;
+        }
+
+        private static BayeuxResponse ExtractResponse(string responseStr)
+        {
+            // As a stream it could have better performance, but logging is easier with strings:
+            //var responseStream = await httpResponse.Content.ReadAsStreamAsync();
+            //var responseList = jsonSerializer.Deserialize<List<BayeuxResponse>>(
+            //    new JsonTextReader(new StreamReader(responseStream, Encoding.UTF8)));
+
+            var token = JToken.Parse(responseStr); // TODO: pass proper JsonLoadSettings
+
+            BayeuxResponse response;
+
+            if (token is JArray)
+            {
+                var responses = token.ToObject<List<BayeuxResponse>>();
+                Debug.Assert(responses.Count == 1);
+                response = responses[0];
+            }
+            else
+            {
+                response = token.ToObject<BayeuxResponse>();
+            }
+
+            return response;
         }
 
         HttpContent ToJsonContent(object message)
         {
             var result = JsonConvert.SerializeObject(message);
-            Debug.WriteLine("HTTP request JSON content:\n" + result);
+            Debug.WriteLine("Posting: " + result); // TODO: proper configurable logging
             return new StringContent(result, Encoding.UTF8, "application/json"); ;
         }
     }
