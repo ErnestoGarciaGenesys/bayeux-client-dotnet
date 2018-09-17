@@ -110,6 +110,8 @@ namespace Tests
 
             Thread.Sleep(TimeSpan.FromSeconds(10));
 
+            await bayeuxClient.Unsubscribe("/statistics/v3/service");
+
             // TODO: bayeuxClient.Dispose();
         }
 

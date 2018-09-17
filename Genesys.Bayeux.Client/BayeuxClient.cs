@@ -111,9 +111,21 @@ namespace Genesys.Bayeux.Client
         public Task Subscribe(string channel)
         {
             return Request(
-                new {       
+                new
+                {
                     clientId = ClientId,
                     channel = "/meta/subscribe",
+                    subscription = channel,
+                });
+        }
+
+        public Task Unsubscribe(string channel)
+        {
+            return Request(
+                new
+                {
+                    clientId = ClientId,
+                    channel = "/meta/unsubscribe",
                     subscription = channel,
                 });
         }
