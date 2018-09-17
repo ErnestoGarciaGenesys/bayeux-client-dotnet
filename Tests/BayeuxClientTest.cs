@@ -64,7 +64,7 @@ namespace Tests
                                 insensitivity = 0,
                                 category = "CurrentTime",
                                 mainMask = "*",
-                                notificationFrequency = 5,
+                                notificationFrequency = 3,
                             },
                             objectId = GetTestParam("UserName"),
                             objectType = "Agent"
@@ -89,9 +89,9 @@ namespace Tests
             var httpClient = await InitHttpClient();
             var bayeuxClient = new BayeuxClient(httpClient, BaseURL + "/statistics/v3/notifications");
             await bayeuxClient.Start();
-            await bayeuxClient.Subscribe("/statistics/v3/service");
-            await bayeuxClient.Subscribe("/statistics/v3/updates");
-            await bayeuxClient.Subscribe("pepe");
+
+            bayeuxClient.EventReceived += (e, args) =>
+                Debug.WriteLine($"Event received on channel {args.Channel} with data\n{args.Data}");
 
             var response = await httpClient.PostAsync(
                 BaseURL + "/statistics/v3/subscriptions?verbose=INFO",
@@ -103,10 +103,12 @@ namespace Tests
             var responseContent = await response.Content.ReadAsStringAsync();
             Debug.WriteLine("Response to Subscribe: " + responseContent);
 
-            bayeuxClient.MessagesReceived += (e, s) =>
-                Debug.WriteLine("Messages received: " + s);
-            
-            Thread.Sleep(TimeSpan.FromMinutes(1));
+            Thread.Sleep(TimeSpan.FromSeconds(5));
+
+            await bayeuxClient.Subscribe("/statistics/v3/updates"); // due to the wait, several events are already received along with the subscribe response
+            await bayeuxClient.Subscribe("/statistics/v3/service");
+
+            Thread.Sleep(TimeSpan.FromSeconds(10));
 
             // TODO: bayeuxClient.Dispose();
         }
@@ -116,7 +118,7 @@ namespace Tests
         // response: {"timestamp":1536851691737,"status":500,"error":"Internal Server Error",
         // "message":"java.lang.IllegalArgumentException: Invalid channel id: pepe",
         // "path":"/statistics/v3/notifications"}
-        public async void Subscribe_invalid_channel_id()
+        public async Task Subscribe_invalid_channel_id()
         {
             var httpClient = await InitHttpClient();
             var bayeuxClient = new BayeuxClient(httpClient, BaseURL + "/statistics/v3/notifications");
