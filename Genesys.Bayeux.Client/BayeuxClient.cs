@@ -10,10 +10,6 @@ using System.Threading.Tasks;
 
 namespace Genesys.Bayeux.Client
 {
-    // TODO: Check HTTP pipelining
-    // https://docs.cometd.org/current/reference/#_two_connection_operation
-    // Implementations MUST control HTTP pipelining so that req1 does not get queued behind req0 and thus enforce an ordering of responses.
-
     // TODO: Check implementation of negotiation
     // https://docs.cometd.org/current/reference/#_connection_negotiation
     // Bayeux connection negotiation may be iterative and several handshake messages may be exchanged before a successful connection is obtained. Servers may also request Bayeux connection renegotiation by sending an unsuccessful connect response with advice to reconnect with a handshake message.
@@ -21,6 +17,7 @@ namespace Genesys.Bayeux.Client
     // TODO: keep alive, and re-subscribe when reconnected through a different session (different clientId?)
 
     // TODO: Make thread-safe, or thread-contained.
+    // For processing events and task continuations, use SyncContext, or TaskScheduler, or what to do? 
 
     // TODO: Implement IDisposable
 
@@ -33,6 +30,15 @@ namespace Genesys.Bayeux.Client
 
         public string ClientId { get; private set; }
 
+        /// <summary>
+        /// </summary>
+        /// <param name="httpClient">
+        ///   The HttpClient provided should prevent HTTP pipelining, because long-polling HTTP requests can delay 
+        ///   other concurrent HTTP requests. If you are using an HttpClient from a WebRequestHandler, then you
+        ///   should set WebRequestHandler.AllowPipelining to false.
+        ///   See https://docs.cometd.org/current/reference/#_two_connection_operation.
+        /// </param>
+        /// <param name="url"></param>
         public BayeuxClient(HttpClient httpClient, string url)
         {
             HttpClient = httpClient;
@@ -97,10 +103,7 @@ namespace Genesys.Bayeux.Client
         public event EventHandler<EventReceivedArgs> EventReceived;
 
         protected virtual void OnEventReceived(EventReceivedArgs args)
-        {
-            var handler = EventReceived; // avoid race condition after checking for null
-            handler?.Invoke(this, args);
-        }
+            => EventReceived?.Invoke(this, args);
 
         async void StartLongPolling()
         {
@@ -158,6 +161,7 @@ namespace Genesys.Bayeux.Client
             // All Bayeux messages SHOULD be encapsulated in a JSON encoded array so that multiple messages may be transported together
             var messageStr = JsonConvert.SerializeObject(new[] { message });
             Debug.WriteLine("Posting: " + messageStr); // TODO: proper configurable logging
+            // see https://docs.microsoft.com/en-us/dotnet/framework/debug-trace-profile/tracing-and-instrumenting-applications
 
             return HttpClient.PostAsync(Url, new StringContent(messageStr, Encoding.UTF8, "application/json"));
         }
