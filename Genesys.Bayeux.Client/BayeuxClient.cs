@@ -10,18 +10,14 @@ using System.Threading.Tasks;
 
 namespace Genesys.Bayeux.Client
 {
-    // TODO: Check implementation of negotiation
-    // https://docs.cometd.org/current/reference/#_connection_negotiation
-    // Bayeux connection negotiation may be iterative and several handshake messages may be exchanged before a successful connection is obtained. Servers may also request Bayeux connection renegotiation by sending an unsuccessful connect response with advice to reconnect with a handshake message.
-
     // TODO: keep alive, and re-subscribe when reconnected through a different session (different clientId?)
+    // TODO: do test to provoke an "Invalid client id" response, by taking too long from the handshake response to a connect or subscribe request.
 
     // TODO: Make thread-safe, or thread-contained.
     // For processing events and task continuations, use SyncContext, or TaskScheduler, or what to do? 
 
     // TODO: Implement IDisposable
 
-    // TODO: do test to provoke an "Invalid client id" response, by taking too long from the handshake response to a connect or subscribe request.
     public class BayeuxClient
     {
         public string Url { get; }
@@ -47,6 +43,11 @@ namespace Genesys.Bayeux.Client
             Url = url;
         }
 
+        /// <summary>
+        /// Does the Bayeux handshake, and starts long-polling.
+        /// Handshake does not support re-negotiation, fails at first unsuccessful response.
+        /// </summary>
+        /// <returns></returns>
         public async Task Start()
         {
             await Handshake();
