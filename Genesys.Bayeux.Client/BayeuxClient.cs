@@ -18,7 +18,7 @@ namespace Genesys.Bayeux.Client
 
     // TODO: Implement IDisposable
 
-    public class BayeuxClient
+    public class BayeuxClient : IDisposable
     {
         public string Url { get; }
 
@@ -53,6 +53,39 @@ namespace Genesys.Bayeux.Client
             await Handshake();
             StartLongPolling();
         }
+
+        bool disposed = false;
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposed)
+                return;
+
+            if (disposing)
+            {
+                // Free any other managed objects here.
+                //
+            }
+
+            // Free any unmanaged objects here.
+            //
+            disposed = true;
+        }
+
+        #region Dispose pattern boilerplate
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        ~BayeuxClient()
+        {
+            Dispose(false);
+        }
+
+        #endregion
 
         class BayeuxResponse
         {
@@ -112,6 +145,18 @@ namespace Genesys.Bayeux.Client
             StartLongPolling();
         }
 
+        Task Connect()
+        {
+            Debug.WriteLine("Polling...");
+            return Request(
+                new
+                {
+                    clientId = ClientId,
+                    channel = "/meta/connect",
+                    connectionType = "long-polling",
+                });
+        }
+
         public Task Subscribe(string channel)
         {
             return Request(
@@ -141,18 +186,6 @@ namespace Genesys.Bayeux.Client
                 {
                     clientId = ClientId,
                     channel = "/meta/disconnect",
-                });
-        }
-
-        Task Connect()
-        {
-            Debug.WriteLine("Polling...");
-            return Request(
-                new
-                {
-                    clientId = ClientId,
-                    channel = "/meta/connect",
-                    connectionType = "long-polling",
                 });
         }
 
