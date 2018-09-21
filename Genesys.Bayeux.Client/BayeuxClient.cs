@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Genesys.Bayeux.Client
@@ -54,22 +55,43 @@ namespace Genesys.Bayeux.Client
             StartLongPolling();
         }
 
-        bool disposed = false;
+        #region Long polling
+
+        readonly CancellationTokenSource longPollingCancel = new CancellationTokenSource();
+
+        void StartLongPolling()
+        {
+            // TODO: Handle exceptions on this unobserved task? Who would receive them? Just possible to log them?
+            LoopLongPolling(longPollingCancel.Token);
+        }
+
+        async void LoopLongPolling(CancellationToken cancelToken)
+        {
+            try
+            {
+                while (true)
+                {
+                    Debug.WriteLine($"{DateTime.Now} Polling...");
+                    await Connect(cancelToken); // TODO: how much timeout?
+                    Debug.WriteLine($"{DateTime.Now} Poll ended.");
+                }
+            }
+            catch (TaskCanceledException)
+            {
+                Debug.WriteLine("Long polling stopped.");
+            }
+        }
+
+        void StopLongPolling()
+        {
+            longPollingCancel.Cancel();
+        }
+
+        #endregion
 
         protected virtual void Dispose(bool disposing)
         {
-            if (disposed)
-                return;
-
-            if (disposing)
-            {
-                // Free any other managed objects here.
-                //
-            }
-
-            // Free any unmanaged objects here.
-            //
-            disposed = true;
+            StopLongPolling();
         }
 
         #region Dispose pattern boilerplate
@@ -139,22 +161,16 @@ namespace Genesys.Bayeux.Client
         protected virtual void OnEventReceived(EventReceivedArgs args)
             => EventReceived?.Invoke(this, args);
 
-        async void StartLongPolling()
+        Task Connect(CancellationToken cancelToken)
         {
-            await Connect();
-            StartLongPolling();
-        }
-
-        Task Connect()
-        {
-            Debug.WriteLine("Polling...");
             return Request(
                 new
                 {
                     clientId = ClientId,
                     channel = "/meta/connect",
                     connectionType = "long-polling",
-                });
+                },
+                cancelToken);
         }
 
         public Task Subscribe(string channel)
@@ -189,30 +205,36 @@ namespace Genesys.Bayeux.Client
                 });
         }
 
-        Task<HttpResponseMessage> Post(object message)
+        Task<HttpResponseMessage> Post(object message, CancellationToken cancelToken)
         {
             // https://docs.cometd.org/current/reference/#_messages
             // All Bayeux messages SHOULD be encapsulated in a JSON encoded array so that multiple messages may be transported together
             var messageStr = JsonConvert.SerializeObject(new[] { message });
             Debug.WriteLine("Posting: " + messageStr); // TODO: proper configurable logging
-            // see https://docs.microsoft.com/en-us/dotnet/framework/debug-trace-profile/tracing-and-instrumenting-applications
+                                                       // see https://docs.microsoft.com/en-us/dotnet/framework/debug-trace-profile/tracing-and-instrumenting-applications
 
-            return HttpClient.PostAsync(Url, new StringContent(messageStr, Encoding.UTF8, "application/json"));
+            return HttpClient.PostAsync(
+                Url,
+                new StringContent(messageStr, Encoding.UTF8, "application/json"),
+                cancelToken);
         }
 
-        async Task<BayeuxResponse> Request(object request)
+        async Task<BayeuxResponse> Request(object request, CancellationToken cancelToken = default(CancellationToken))
         {
-            var httpResponse = await Post(request);
+            var httpResponse = await Post(request, cancelToken);
 
             // As a stream it could have better performance, but logging is easier with strings.
             var responseStr = await httpResponse.Content.ReadAsStringAsync();
             Debug.WriteLine("Received: " + responseStr); // TODO: proper configurable logging
 
             var responseToken = JToken.Parse(responseStr);
-            IEnumerable<JToken> tokens = responseToken is JArray ? (IEnumerable<JToken>) responseToken : new [] { responseToken };
+            IEnumerable<JToken> tokens = responseToken is JArray ?
+                (IEnumerable<JToken>) responseToken :
+                new [] { responseToken };
 
             // https://docs.cometd.org/current/reference/#_delivery
-            // Event messages MAY be sent to the client in the same HTTP response as any other message other than a /meta/handshake response.
+            // Event messages MAY be sent to the client in the same HTTP response 
+            // as any other message other than a /meta/handshake response.
             JObject responseObj = null;
             var events = new List<JObject>();
 
@@ -262,7 +284,10 @@ namespace Genesys.Bayeux.Client
             public long timeout;
             public string reconnect;
         }
-        // sample advice received: {"interval":0,"timeout":20000,"reconnect":"retry"}
+        // usual sample advice received:
+        // {"interval":0,"timeout":20000,"reconnect":"retry"}
+        // another sample advice, when too much time without polling:
+        // [{"advice":{"interval":0,"reconnect":"handshake"},"channel":"/meta/connect","error":"402::Unknown client","successful":false}]
 
         void FollowAdvice(JObject message)
         {
@@ -270,9 +295,24 @@ namespace Genesys.Bayeux.Client
             if (adviceToken != null)
             {
                 var advice = adviceToken.ToObject<Advice>();
+
                 // TODO: follow advice
                 // https://docs.cometd.org/current/reference/#_bayeux_advice
                 // any Bayeux response message may contain an advice field. Advice received always supersedes any previous received advice.
+                switch (advice.reconnect)
+                {
+                    case "retry":
+                        // TODO
+                        break;
+
+                    case "handshake":
+                        // TODO
+                        break;
+
+                    case "none":
+                        StopLongPolling();
+                        break;
+                }
             }
         }
     }

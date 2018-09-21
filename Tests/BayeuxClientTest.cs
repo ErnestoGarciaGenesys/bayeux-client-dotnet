@@ -64,7 +64,7 @@ namespace Tests
                                 insensitivity = 0,
                                 category = "CurrentTime",
                                 mainMask = "*",
-                                notificationFrequency = 3,
+                                notificationFrequency = 5,
                             },
                             objectId = GetTestParam("UserName"),
                             objectType = "Agent"
@@ -87,32 +87,35 @@ namespace Tests
         public async Task Subscribe_statistic()
         {
             var httpClient = await InitHttpClient();
-            var bayeuxClient = new BayeuxClient(httpClient, BaseURL + "/statistics/v3/notifications");
-            await bayeuxClient.Start();
 
-            bayeuxClient.EventReceived += (e, args) =>
-                Debug.WriteLine($"Event received on channel {args.Channel} with data\n{args.Data}");
+            using (var bayeuxClient = new BayeuxClient(httpClient, BaseURL + "/statistics/v3/notifications"))
+            {
+                await bayeuxClient.Start();
 
-            var response = await httpClient.PostAsync(
-                BaseURL + "/statistics/v3/subscriptions?verbose=INFO",
-                new StringContent(
-                    JsonConvert.SerializeObject(statistics),
-                    Encoding.UTF8,
-                    "application/json"));
+                bayeuxClient.EventReceived += (e, args) =>
+                    Debug.WriteLine($"Event received on channel {args.Channel} with data\n{args.Data}");
 
-            var responseContent = await response.Content.ReadAsStringAsync();
-            Debug.WriteLine("Response to Subscribe: " + responseContent);
+                var response = await httpClient.PostAsync(
+                    BaseURL + "/statistics/v3/subscriptions?verbose=INFO",
+                    new StringContent(
+                        JsonConvert.SerializeObject(statistics),
+                        Encoding.UTF8,
+                        "application/json"));
 
-            Thread.Sleep(TimeSpan.FromSeconds(5));
+                var responseContent = await response.Content.ReadAsStringAsync();
+                Debug.WriteLine("Response to Subscribe: " + responseContent);
 
-            await bayeuxClient.Subscribe("/statistics/v3/updates"); // due to the wait, several events are already received along with the subscribe response
-            await bayeuxClient.Subscribe("/statistics/v3/service");
+                Thread.Sleep(TimeSpan.FromSeconds(1));
 
-            Thread.Sleep(TimeSpan.FromSeconds(10));
+                await bayeuxClient.Subscribe("/statistics/v3/updates"); // due to the wait, several events are already received along with the subscribe response
+                await bayeuxClient.Subscribe("/statistics/v3/service");
 
-            await bayeuxClient.Unsubscribe("/statistics/v3/service");
+                Thread.Sleep(TimeSpan.FromSeconds(11));
 
-            // TODO: bayeuxClient.Dispose();
+                await bayeuxClient.Unsubscribe("/statistics/v3/service");
+            }
+
+            Thread.Sleep(TimeSpan.FromSeconds(2));
         }
 
         [TestMethod]
