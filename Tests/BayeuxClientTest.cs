@@ -119,7 +119,7 @@ namespace Tests
         }
 
         [TestMethod]
-        [ExpectedException(typeof(BayeuxRequestFailedException))]
+        [ExpectedException(typeof(BayeuxRequestException))]
         // response: {"timestamp":1536851691737,"status":500,"error":"Internal Server Error",
         // "message":"java.lang.IllegalArgumentException: Invalid channel id: pepe",
         // "path":"/statistics/v3/notifications"}

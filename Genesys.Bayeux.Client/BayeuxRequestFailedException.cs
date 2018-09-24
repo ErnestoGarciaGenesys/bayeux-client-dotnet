@@ -3,10 +3,13 @@
 namespace Genesys.Bayeux.Client
 {
     [Serializable]
-    public class BayeuxRequestFailedException : Exception
+    public class BayeuxRequestException : Exception
     {
-        public BayeuxRequestFailedException(string error) : base(error)
+        public string BayeuxError { get; private set; }
+
+        public BayeuxRequestException(string error) : base(error)
         {
+            BayeuxError = error;
         }
     }
 }
