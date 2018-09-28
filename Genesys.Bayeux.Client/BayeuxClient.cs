@@ -18,11 +18,13 @@ namespace Genesys.Bayeux.Client
 
         public HttpClient HttpClient { get; }
 
+        readonly TaskScheduler eventTaskScheduler;
+
         volatile string currentClientId;
 
         class Advice
         {
-            public string reconnect;
+            public string reconnect; // TODO: take care of these warnings.
             public int interval = 0;
         }
 
@@ -31,18 +33,48 @@ namespace Genesys.Bayeux.Client
         /// <summary>
         /// </summary>
         /// <param name="httpClient">
-        ///   The HttpClient provided should prevent HTTP pipelining, because long-polling HTTP requests can delay 
-        ///   other concurrent HTTP requests. If you are using an HttpClient from a WebRequestHandler, then you
-        ///   should set WebRequestHandler.AllowPipelining to false.
-        ///   See https://docs.cometd.org/current/reference/#_two_connection_operation.
+        /// The HttpClient provided should prevent HTTP pipelining, because long-polling HTTP requests can delay 
+        /// other concurrent HTTP requests. If you are using an HttpClient from a WebRequestHandler, then you
+        /// should set WebRequestHandler.AllowPipelining to false.
+        /// See https://docs.cometd.org/current/reference/#_two_connection_operation.
+        /// </param>
+        /// <param name="eventTaskScheduler">
+        /// <para>
+        /// TaskScheduler for invoking events. Usually, you will be good by providing null. If you decide to 
+        /// your own TaskScheduler, please make sure that it guarantees ordered execution of events.
+        /// </para>
+        /// <para>
+        /// If null is provided, SynchronizationContext.Current will be used. This means that WPF and 
+        /// Windows Forms applications will run events appropriately. If SynchronizationContext.Current
+        /// is null, then a new TaskScheduler with ordered execution will be created.
+        /// </para>
         /// </param>
         /// <param name="url"></param>
-        public BayeuxClient(HttpClient httpClient, string url)
+        public BayeuxClient(HttpClient httpClient, string url, TaskScheduler eventTaskScheduler = null)
         {
             HttpClient = httpClient;
 
             // TODO: allow relative URL to HttpClient.BaseAddress
             Url = url;
+
+            this.eventTaskScheduler = ChooseTaskScheduler(eventTaskScheduler);
+        }
+
+        TaskScheduler ChooseTaskScheduler(TaskScheduler eventTaskScheduler)
+        {
+            if (eventTaskScheduler != null)
+                return eventTaskScheduler;
+            
+            if (SynchronizationContext.Current != null)
+            {
+                Debug.WriteLine("Using current SynchronizationContext for events: {SynchronizationContext.Current}");
+                return TaskScheduler.FromCurrentSynchronizationContext();
+            }
+            else
+            {
+                Debug.WriteLine("Using a new TaskScheduler with ordered execution for events.");
+                return new ConcurrentExclusiveSchedulerPair().ExclusiveScheduler;
+            }
         }
 
         /// <summary>
@@ -214,6 +246,7 @@ namespace Genesys.Bayeux.Client
             public override string ToString() => ev.ToString();
         }
 
+        // TODO: is this thread-safe?
         public event EventHandler<EventReceivedArgs> EventReceived;
 
         protected virtual void OnEventReceived(EventReceivedArgs args)
@@ -273,6 +306,7 @@ namespace Genesys.Bayeux.Client
             var messageStr = JsonConvert.SerializeObject(new[] { message });
             Debug.WriteLine("Posting: " + messageStr); // TODO: proper configurable logging
                                                        // see https://docs.microsoft.com/en-us/dotnet/framework/debug-trace-profile/tracing-and-instrumenting-applications
+                                                       // see Logging in http://www.dotnetframework.org/default.aspx/4@0/4@0/DEVDIV_TFS/Dev10/Releases/RTMRel/ndp/fx/src/Net/System/Net/webclient@cs/1305376/webclient@cs
 
             return HttpClient.PostAsync(
                 Url,
@@ -324,16 +358,14 @@ namespace Genesys.Bayeux.Client
                     lastAdvice = adviceToken.ToObject<Advice>();
             }
 
-            // TODO: Do we need to accept a SyncContext, or TaskScheduler, for customizing how events are notified?
-            // TODO: notify always on same thread, to preserve order
-            Task.Run(() =>
+            var _ = Task.Factory.StartNew(() =>
             {
                 foreach (var ev in events)
                 {
                     OnEventReceived(new EventReceivedArgs(ev));
                     // TODO: handle client exceptions?
                 }
-            });
+            }, CancellationToken.None, TaskCreationOptions.DenyChildAttach, eventTaskScheduler);
 
             var response = responseObj.ToObject<BayeuxResponse>();
 
