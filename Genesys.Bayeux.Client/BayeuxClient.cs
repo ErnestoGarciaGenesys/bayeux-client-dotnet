@@ -13,7 +13,6 @@ using static Genesys.Bayeux.Client.Logging.LogProvider;
 
 namespace Genesys.Bayeux.Client
 {
-    // TODO: Make thread-safe, or thread-contained.
     public class BayeuxClient : IDisposable
     {
         // Don't use string formatting for logging, as it is not supported by the internal TraceSource implementation.
@@ -32,14 +31,7 @@ namespace Genesys.Bayeux.Client
         readonly TaskScheduler eventTaskScheduler;
 
         volatile string currentClientId;
-
-        class Advice
-        {
-            public string reconnect; // TODO: take care of these warnings.
-            public int interval = 0;
-        }
-
-        volatile Advice lastAdvice;
+        volatile BayeuxAdvice lastAdvice;
 
 
         /// <param name="httpClient">
@@ -135,7 +127,17 @@ namespace Genesys.Bayeux.Client
             }
         }
 
-        async Task Poll(Advice advice, CancellationToken cancellationToken)
+#pragma warning disable 0649 // "Field is never assigned to". These fields will be assigned by JSON deserialization
+
+        class BayeuxAdvice
+        {
+            public string reconnect;
+            public int interval = 0;
+        }
+
+#pragma warning restore 0649
+
+        async Task Poll(BayeuxAdvice advice, CancellationToken cancellationToken)
         {
             try
             {
@@ -191,7 +193,7 @@ namespace Genesys.Bayeux.Client
 
         protected virtual void Dispose(bool disposing)
         {
-            if (disposing)
+            if (disposing) // TODO: revisit this check
             {
                 StopLongPolling();
             }
@@ -211,13 +213,6 @@ namespace Genesys.Bayeux.Client
         }
 
         #endregion
-
-        class BayeuxResponse
-        {
-            public bool successful;
-            public string error;
-            public string clientId;
-        }
 
         // TODO: choose best JSON methods to use, and best configuration of JsonSerializer
         readonly JsonSerializer jsonSerializer = JsonSerializer.Create();
@@ -327,6 +322,17 @@ namespace Genesys.Bayeux.Client
                 cancellationToken);
         }
 
+#pragma warning disable 0649 // "Field is never assigned to". These fields will be assigned by JSON deserialization
+
+        class BayeuxResponse
+        {
+            public bool successful;
+            public string error;
+            public string clientId;
+        }
+
+#pragma warning restore 0649
+
         // TODO: The response is actually not used elsewhere, no need to return it?
         async Task<BayeuxResponse> Request(object request, CancellationToken cancellationToken = default(CancellationToken))
         {
@@ -369,7 +375,7 @@ namespace Genesys.Bayeux.Client
                 // Advice received always supersedes any previous received advice.
                 var adviceToken = message["advice"];
                 if (adviceToken != null)
-                    lastAdvice = adviceToken.ToObject<Advice>();
+                    lastAdvice = adviceToken.ToObject<BayeuxAdvice>();
             }
 
             var _ = Task.Factory.StartNew(() =>
