@@ -1,4 +1,5 @@
-﻿using Newtonsoft.Json;
+﻿using Genesys.Bayeux.Client.Logging;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -8,16 +9,26 @@ using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using static Genesys.Bayeux.Client.Logging.LogProvider;
 
 namespace Genesys.Bayeux.Client
 {
     // TODO: Make thread-safe, or thread-contained.
     public class BayeuxClient : IDisposable
     {
-        public string Url { get; }
+        // Don't use string formatting for logging, as it is not supported by the internal TraceSource implementation.
+        static readonly ILog log;
 
-        public HttpClient HttpClient { get; }
+        static BayeuxClient()
+        {
+            LogProvider.LogProviderResolvers.Add(
+                new Tuple<IsLoggerAvailable, CreateLogProvider>(() => true, () => new TraceSourceLogProvider()));
 
+            log = LogProvider.GetLogger(typeof(BayeuxClient).Namespace);
+        }
+
+        readonly string url;
+        readonly HttpClient httpClient;
         readonly TaskScheduler eventTaskScheduler;
 
         volatile string currentClientId;
@@ -30,12 +41,11 @@ namespace Genesys.Bayeux.Client
 
         volatile Advice lastAdvice;
 
-        /// <summary>
-        /// </summary>
+
         /// <param name="httpClient">
-        /// The HttpClient provided should prevent HTTP pipelining, because long-polling HTTP requests can delay 
-        /// other concurrent HTTP requests. If you are using an HttpClient from a WebRequestHandler, then you
-        /// should set WebRequestHandler.AllowPipelining to false.
+        /// The HttpClient provided should prevent HTTP pipelining for POST requests, because long-polling HTTP 
+        /// requests can delay other concurrent HTTP requests. If you are using an HttpClient from a WebRequestHandler, 
+        /// then you should set WebRequestHandler.AllowPipelining to false.
         /// See https://docs.cometd.org/current/reference/#_two_connection_operation.
         /// </param>
         /// <param name="eventTaskScheduler">
@@ -52,14 +62,15 @@ namespace Genesys.Bayeux.Client
         /// <param name="url"></param>
         public BayeuxClient(HttpClient httpClient, string url, TaskScheduler eventTaskScheduler = null)
         {
-            HttpClient = httpClient;
+            this.httpClient = httpClient;
 
             // TODO: allow relative URL to HttpClient.BaseAddress
-            Url = url;
+            this.url = url;
 
             this.eventTaskScheduler = ChooseTaskScheduler(eventTaskScheduler);
         }
 
+        // TODO: Move this to external factory methods?
         TaskScheduler ChooseTaskScheduler(TaskScheduler eventTaskScheduler)
         {
             if (eventTaskScheduler != null)
@@ -67,12 +78,12 @@ namespace Genesys.Bayeux.Client
             
             if (SynchronizationContext.Current != null)
             {
-                Debug.WriteLine("Using current SynchronizationContext for events: {SynchronizationContext.Current}");
+                log.Info($"Using current SynchronizationContext for events: {SynchronizationContext.Current}");
                 return TaskScheduler.FromCurrentSynchronizationContext();
             }
             else
             {
-                Debug.WriteLine("Using a new TaskScheduler with ordered execution for events.");
+                log.Info("Using a new TaskScheduler with ordered execution for events.");
                 return new ConcurrentExclusiveSchedulerPair().ExclusiveScheduler;
             }
         }
@@ -115,11 +126,11 @@ namespace Genesys.Bayeux.Client
             }
             catch (TaskCanceledException)
             {
-                Debug.WriteLine("Long-polling cancelled.");
+                log.Info("Long-polling cancelled.");
             }
             catch (Exception e)
             {
-                Debug.WriteLine("Long-polling stopped on unexpected exception.", e);
+                log.ErrorException("Long-polling stopped on unexpected exception.", e);
                 throw; // TODO: Handle exceptions on this unobserved task? Who would receive them? Just possible to log them?
             }
         }
@@ -131,7 +142,7 @@ namespace Genesys.Bayeux.Client
                 switch (advice.reconnect)
                 {
                     case "none":
-                        Debug.WriteLine($"{DateTime.Now} Stopping long-polling on server request.");
+                        log.Debug("Stopping long-polling on server request.");
                         StopLongPolling();
                         break;
 
@@ -144,30 +155,30 @@ namespace Genesys.Bayeux.Client
                     // [{"advice":{"interval":0,"reconnect":"handshake"},"channel":"/meta/connect","error":"402::Unknown client","successful":false}]
 
                     case "handshake":
+                        log.Debug($"Re-handshaking after {advice.interval} ms on server request.");
                         await Task.Delay(advice.interval);
-                        Debug.WriteLine($"{DateTime.Now} Re-handshaking...");
                         await Handshake(cancellationToken);
-                        Debug.WriteLine($"{DateTime.Now} Re-handshaken.");
                         break;
 
                     case "retry":
                     default:
+                        if (advice.interval > 0)
+                            log.Debug($"Re-connecting after {advice.interval} ms on server request.");
+
                         await Task.Delay(advice.interval);
-                        Debug.WriteLine($"{DateTime.Now} Polling...");
                         await Connect(cancellationToken);
-                        Debug.WriteLine($"{DateTime.Now} Poll ended.");
                         break;
                 }
             }
             catch (HttpRequestException e)
             {
                 var retryDelay = 5000; // TODO: accept external implementation, with a backoff, for example
-                Debug.WriteLine($"HTTP request failed. Retrying after {retryDelay} ms.", e);
+                log.ErrorException($"HTTP request failed. Retrying after {retryDelay} ms.", e);
                 await Task.Delay(retryDelay);
             }
             catch (BayeuxRequestException e)
             {
-                Debug.WriteLine($"Bayeux request failed with error: {e.BayeuxError}");
+                log.Error($"Bayeux request failed with error: {e.BayeuxError}");
             }
         }
 
@@ -180,7 +191,10 @@ namespace Genesys.Bayeux.Client
 
         protected virtual void Dispose(bool disposing)
         {
-            StopLongPolling();
+            if (disposing)
+            {
+                StopLongPolling();
+            }
         }
 
         #region Dispose pattern boilerplate
@@ -298,18 +312,17 @@ namespace Genesys.Bayeux.Client
                 },
                 cancellationToken);
         }
-
+        
         Task<HttpResponseMessage> Post(object message, CancellationToken cancellationToken)
         {
             // https://docs.cometd.org/current/reference/#_messages
             // All Bayeux messages SHOULD be encapsulated in a JSON encoded array so that multiple messages may be transported together
             var messageStr = JsonConvert.SerializeObject(new[] { message });
-            Debug.WriteLine("Posting: " + messageStr); // TODO: proper configurable logging
-                                                       // see https://docs.microsoft.com/en-us/dotnet/framework/debug-trace-profile/tracing-and-instrumenting-applications
-                                                       // see Logging in http://www.dotnetframework.org/default.aspx/4@0/4@0/DEVDIV_TFS/Dev10/Releases/RTMRel/ndp/fx/src/Net/System/Net/webclient@cs/1305376/webclient@cs
 
-            return HttpClient.PostAsync(
-                Url,
+            log.Debug($"Posting: {messageStr}");
+
+            return httpClient.PostAsync(
+                url,
                 new StringContent(messageStr, Encoding.UTF8, "application/json"),
                 cancellationToken);
         }
@@ -321,7 +334,8 @@ namespace Genesys.Bayeux.Client
 
             // As a stream it could have better performance, but logging is easier with strings.
             var responseStr = await httpResponse.Content.ReadAsStringAsync();
-            Debug.WriteLine("Received: " + responseStr); // TODO: proper configurable logging
+
+            log.Debug($"Received: {responseStr}");
 
             var responseToken = JToken.Parse(responseStr);
             IEnumerable<JToken> tokens = responseToken is JArray ?
@@ -372,10 +386,6 @@ namespace Genesys.Bayeux.Client
             if (!response.successful)
                 throw new BayeuxRequestException(response.error);
 
-            // I have received the following non-compliant error response from the Statistics API:
-            // request: [{"clientId":"256fs7hljxavbz317cdt1d7t882v","channel":"/meta/subscribe","subscription":"/pepe"}]
-            // response: {"timestamp":1536851691737,"status":500,"error":"Internal Server Error","message":"java.lang.IllegalArgumentException: Invalid channel id: pepe","path":"/statistics/v3/notifications"}
-            
             return response;
         }
     }

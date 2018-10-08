@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Genesys.Bayeux.Client;
+using Genesys.Bayeux.Client.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
 
@@ -109,6 +110,10 @@ namespace Tests
 
                 await bayeuxClient.Subscribe("/statistics/v3/updates"); // due to the wait, several events are already received along with the subscribe response
                 await bayeuxClient.Subscribe("/statistics/v3/service");
+
+                // I have received the following non-compliant error response from the Statistics API:
+                // request: [{"clientId":"256fs7hljxavbz317cdt1d7t882v","channel":"/meta/subscribe","subscription":"/pepe"}]
+                // response: {"timestamp":1536851691737,"status":500,"error":"Internal Server Error","message":"java.lang.IllegalArgumentException: Invalid channel id: pepe","path":"/statistics/v3/notifications"}
 
                 Thread.Sleep(TimeSpan.FromSeconds(11));
 

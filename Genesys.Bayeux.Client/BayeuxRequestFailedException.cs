@@ -2,7 +2,6 @@
 
 namespace Genesys.Bayeux.Client
 {
-    [Serializable]
     public class BayeuxRequestException : Exception
     {
         public string BayeuxError { get; private set; }
