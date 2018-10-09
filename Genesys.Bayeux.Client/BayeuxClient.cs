@@ -111,18 +111,22 @@ namespace Genesys.Bayeux.Client
         {
             try
             {
-                while (true)
+                while (!longPollingCancel.IsCancellationRequested)
                 {
                     await Poll(lastAdvice, cancellationToken);
                 }
+
+                OnConnectionStateChanged(ConnectionState.Disconnected);
             }
             catch (TaskCanceledException)
             {
+                OnConnectionStateChanged(ConnectionState.Disconnected);
                 log.Info("Long-polling cancelled.");
             }
             catch (Exception e)
             {
                 log.ErrorException("Long-polling stopped on unexpected exception.", e);
+                OnConnectionStateChanged(ConnectionState.DisconnectedOnError);
                 throw; // TODO: Handle exceptions on this unobserved task? Who would receive them? Just possible to log them?
             }
         }
@@ -144,7 +148,7 @@ namespace Genesys.Bayeux.Client
                 switch (advice.reconnect)
                 {
                     case "none":
-                        log.Debug("Stopping long-polling on server request.");
+                        log.Debug("Long-polling stopped on server request.");
                         StopLongPolling();
                         break;
 
@@ -174,12 +178,14 @@ namespace Genesys.Bayeux.Client
             }
             catch (HttpRequestException e)
             {
+                OnConnectionStateChanged(ConnectionState.Connecting);
                 var retryDelay = 5000; // TODO: accept external implementation, with a backoff, for example
                 log.ErrorException($"HTTP request failed. Retrying after {retryDelay} ms.", e);
                 await Task.Delay(retryDelay);
             }
             catch (BayeuxRequestException e)
             {
+                OnConnectionStateChanged(ConnectionState.Connecting);
                 log.Error($"Bayeux request failed with error: {e.BayeuxError}");
             }
         }
@@ -214,11 +220,46 @@ namespace Genesys.Bayeux.Client
 
         #endregion
 
+        public enum ConnectionState
+        {
+            Disconnected,
+            Connecting,
+            Connected,
+            DisconnectedOnError,
+        }
+
+        public class ConnectionStateChangedArgs : EventArgs
+        {
+            public ConnectionState ConnectionState { get; private set; }
+
+            public ConnectionStateChangedArgs(ConnectionState state)
+            {
+                ConnectionState = state;
+            }
+
+            public override string ToString() => ConnectionState.ToString();
+        }
+
+        protected volatile int currentConnectionState = -1;
+
+        public event EventHandler<ConnectionStateChangedArgs> ConnectionStateChanged;
+
+        protected virtual void OnConnectionStateChanged(ConnectionState state)
+        {
+            var oldConnectionState = Interlocked.Exchange(ref currentConnectionState, (int) state);
+
+            if (oldConnectionState != (int) state)
+                RunInEventTaskScheduler(() =>
+                    ConnectionStateChanged?.Invoke(this, new ConnectionStateChangedArgs(state)));
+        }   
+
         // TODO: choose best JSON methods to use, and best configuration of JsonSerializer
         readonly JsonSerializer jsonSerializer = JsonSerializer.Create();
 
         async Task Handshake(CancellationToken cancellationToken)
         {
+            OnConnectionStateChanged(ConnectionState.Connecting);
+
             var response = await Request(
                 new
                 {
@@ -229,6 +270,8 @@ namespace Genesys.Bayeux.Client
                 cancellationToken);
 
             currentClientId = response.clientId;
+
+            OnConnectionStateChanged(ConnectionState.Connected);
         }
 
         // On defining .NET events
@@ -255,15 +298,14 @@ namespace Genesys.Bayeux.Client
             public override string ToString() => ev.ToString();
         }
 
-        // TODO: is this thread-safe?
         public event EventHandler<EventReceivedArgs> EventReceived;
 
         protected virtual void OnEventReceived(EventReceivedArgs args)
             => EventReceived?.Invoke(this, args);
 
-        Task Connect(CancellationToken cancellationToken)
+        async Task Connect(CancellationToken cancellationToken)
         {
-            return Request(
+            await Request(
                 new
                 {
                     clientId = currentClientId,
@@ -271,6 +313,8 @@ namespace Genesys.Bayeux.Client
                     connectionType = "long-polling",
                 },
                 cancellationToken);
+
+            OnConnectionStateChanged(ConnectionState.Connected);
         }
 
         public Task Subscribe(string channel, CancellationToken cancellationToken = default(CancellationToken))
@@ -297,6 +341,7 @@ namespace Genesys.Bayeux.Client
                 cancellationToken);
         }
 
+        // TODO: This should stop long polling. This should be called by dispose as well.
         public Task Disconnect(CancellationToken cancellationToken = default(CancellationToken))
         {
             return Request(
@@ -345,8 +390,8 @@ namespace Genesys.Bayeux.Client
 
             var responseToken = JToken.Parse(responseStr);
             IEnumerable<JToken> tokens = responseToken is JArray ?
-                (IEnumerable<JToken>) responseToken :
-                new [] { responseToken };
+                (IEnumerable<JToken>)responseToken :
+                new[] { responseToken };
 
             // https://docs.cometd.org/current/reference/#_delivery
             // Event messages MAY be sent to the client in the same HTTP response 
@@ -356,10 +401,11 @@ namespace Genesys.Bayeux.Client
 
             foreach (var token in tokens)
             {
-                JObject message = (JObject) token;
-                var channel = (string) message["channel"];
+                JObject message = (JObject)token;
+                var channel = (string)message["channel"];
 
-                // TODO: throw BayeuxProtocol Exception if no channel?
+                if (channel == null)
+                    throw new BayeuxProtocolException("No 'channel' field in message.");
 
                 if (channel.StartsWith("/meta/"))
                 {
@@ -378,14 +424,14 @@ namespace Genesys.Bayeux.Client
                     lastAdvice = adviceToken.ToObject<BayeuxAdvice>();
             }
 
-            var _ = Task.Factory.StartNew(() =>
+            RunInEventTaskScheduler(() =>
             {
                 foreach (var ev in events)
                 {
                     OnEventReceived(new EventReceivedArgs(ev));
                     // TODO: handle client exceptions?
                 }
-            }, CancellationToken.None, TaskCreationOptions.DenyChildAttach, eventTaskScheduler);
+            });
 
             var response = responseObj.ToObject<BayeuxResponse>();
 
@@ -393,6 +439,11 @@ namespace Genesys.Bayeux.Client
                 throw new BayeuxRequestException(response.error);
 
             return response;
+        }
+
+        void RunInEventTaskScheduler(Action action)
+        {
+            var _ = Task.Factory.StartNew(action, CancellationToken.None, TaskCreationOptions.DenyChildAttach, eventTaskScheduler);
         }
     }
 }

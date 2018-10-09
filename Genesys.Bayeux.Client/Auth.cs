@@ -41,6 +41,12 @@ namespace Genesys.Bayeux.Client
             var response = await httpClient.SendAsync(authRequest);
             var responseContent = await response.Content.ReadAsStringAsync();
             var json = JObject.Parse(responseContent);
+
+            var error = json["error"];
+
+            if (error != null)
+                throw new AuthException(error.ToString(), json["error_description"]?.ToString());
+            
             return json["access_token"].ToString();
         }
     }
