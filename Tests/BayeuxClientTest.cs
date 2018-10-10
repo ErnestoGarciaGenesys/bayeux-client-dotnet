@@ -7,7 +7,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Genesys.Bayeux.Client;
-using Genesys.Bayeux.Client.Logging;
 using HttpMock;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
@@ -85,19 +84,37 @@ namespace Tests
             return httpClient;
         }
 
+        BayeuxClient InitStatisticsBayeuxClient(HttpClient httpClient)
+        {
+            var bayeuxClient = new BayeuxClient(httpClient, BaseURL + "/statistics/v3/notifications");
+
+            bayeuxClient.EventReceived += (e, args) =>
+                Debug.WriteLine($"Event received on channel {args.Channel} with data\n{args.Data}");
+
+            bayeuxClient.ConnectionStateChanged += (e, args) =>
+                Debug.WriteLine($"Bayeux connection state changed to {args.ConnectionState}");
+
+            return bayeuxClient;
+        }
+
+        [TestMethod]
+        public async Task Stop_without_start()
+        {
+            var httpClient = await InitHttpClient();
+            using (var bayeuxClient = InitStatisticsBayeuxClient(httpClient))
+            {
+                Debug.WriteLine("Disposing...");
+            }
+            Debug.WriteLine("Disposed.");
+        }
+
         [TestMethod]
         public async Task Subscribe_statistic()
         {
             var httpClient = await InitHttpClient();
 
-            using (var bayeuxClient = new BayeuxClient(httpClient, BaseURL + "/statistics/v3/notifications"))
+            using (var bayeuxClient = InitStatisticsBayeuxClient(httpClient))
             {
-                bayeuxClient.EventReceived += (e, args) =>
-                    Debug.WriteLine($"Event received on channel {args.Channel} with data\n{args.Data}");
-
-                bayeuxClient.ConnectionStateChanged += (e, args) =>
-                    Debug.WriteLine($"Bayeux connection state changed to {args.ConnectionState}");
-
                 await bayeuxClient.Start();
 
                 var response = await httpClient.PostAsync(

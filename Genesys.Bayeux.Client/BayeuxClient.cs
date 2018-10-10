@@ -30,9 +30,10 @@ namespace Genesys.Bayeux.Client
         readonly HttpClient httpClient;
         readonly TaskScheduler eventTaskScheduler;
 
+        readonly CancellationTokenSource pollCancel = new CancellationTokenSource();
         volatile string currentClientId;
         volatile BayeuxAdvice lastAdvice;
-
+        
 
         /// <param name="httpClient">
         /// The HttpClient provided should prevent HTTP pipelining for POST requests, because long-polling HTTP 
@@ -62,8 +63,7 @@ namespace Genesys.Bayeux.Client
             this.eventTaskScheduler = ChooseTaskScheduler(eventTaskScheduler);
         }
 
-        // TODO: Move this to external factory methods?
-        TaskScheduler ChooseTaskScheduler(TaskScheduler eventTaskScheduler)
+        static TaskScheduler ChooseTaskScheduler(TaskScheduler eventTaskScheduler)
         {
             if (eventTaskScheduler != null)
                 return eventTaskScheduler;
@@ -84,10 +84,9 @@ namespace Genesys.Bayeux.Client
         /// Does the Bayeux handshake, and starts long-polling.
         /// Handshake does not support re-negotiation; it fails at first unsuccessful response.
         /// </summary>
-        /// <returns></returns>
         public async Task Start(CancellationToken cancellationToken = default(CancellationToken))
         {
-            // TODO: avoid several handshake requests
+            // TODO: avoid starting more than once
 
             // TODO: how much timeout?
             await Handshake(cancellationToken);
@@ -95,23 +94,14 @@ namespace Genesys.Bayeux.Client
             // TODO: A way to test the re-handshake with a real server is to put some delay here, between the first handshake response,
             // and the first try to connect. That will cause an "Invalid client id" response, with an advice of reconnect=handshake.
             // This can also be tested with a fake server in unit tests.
-            StartLongPolling();
+            LoopPolling(pollCancel.Token);
         }
 
-        #region Long polling
-
-        readonly CancellationTokenSource longPollingCancel = new CancellationTokenSource();
-
-        void StartLongPolling()
-        {
-            LoopLongPolling(longPollingCancel.Token);
-        }
-
-        async void LoopLongPolling(CancellationToken cancellationToken)
+        async void LoopPolling(CancellationToken cancellationToken)
         {
             try
             {
-                while (!longPollingCancel.IsCancellationRequested)
+                while (!pollCancel.IsCancellationRequested)
                 {
                     await Poll(lastAdvice, cancellationToken);
                 }
@@ -131,6 +121,42 @@ namespace Genesys.Bayeux.Client
             }
         }
 
+        void StopLongPolling()
+        {
+            pollCancel.Cancel();
+        }
+
+        public async Task Stop(CancellationToken cancellationToken = default(CancellationToken))
+        {
+            StopLongPolling();
+
+            var clientId = Interlocked.Exchange(ref currentClientId, null);
+
+            if (clientId != null)
+                await Disconnect(clientId, cancellationToken);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                var _ = Stop();
+            }
+            else
+                StopLongPolling();
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        ~BayeuxClient()
+        {
+            Dispose(false);
+        }
+
 #pragma warning disable 0649 // "Field is never assigned to". These fields will be assigned by JSON deserialization
 
         class BayeuxAdvice
@@ -145,6 +171,7 @@ namespace Genesys.Bayeux.Client
         {
             try
             {
+                log.Debug($"Last advice is reconnect={advice.reconnect}, interval={advice.interval}");
                 switch (advice.reconnect)
                 {
                     case "none":
@@ -189,36 +216,6 @@ namespace Genesys.Bayeux.Client
                 log.Error($"Bayeux request failed with error: {e.BayeuxError}");
             }
         }
-
-        void StopLongPolling()
-        {
-            longPollingCancel.Cancel();
-        }
-
-        #endregion
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (disposing) // TODO: revisit this check
-            {
-                StopLongPolling();
-            }
-        }
-
-        #region Dispose pattern boilerplate
-
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        ~BayeuxClient()
-        {
-            Dispose(false);
-        }
-
-        #endregion
 
         public enum ConnectionState
         {
@@ -317,6 +314,17 @@ namespace Genesys.Bayeux.Client
             OnConnectionStateChanged(ConnectionState.Connected);
         }
 
+        Task Disconnect(string clientId, CancellationToken cancellationToken = default(CancellationToken))
+        {
+            return Request(
+                new
+                {
+                    clientId,
+                    channel = "/meta/disconnect",
+                },
+                cancellationToken);
+        }
+
         public Task Subscribe(string channel, CancellationToken cancellationToken = default(CancellationToken))
         {
             return Request(
@@ -341,18 +349,6 @@ namespace Genesys.Bayeux.Client
                 cancellationToken);
         }
 
-        // TODO: This should stop long polling. This should be called by dispose as well.
-        public Task Disconnect(CancellationToken cancellationToken = default(CancellationToken))
-        {
-            return Request(
-                new
-                {
-                    clientId = currentClientId,
-                    channel = "/meta/disconnect",
-                },
-                cancellationToken);
-        }
-        
         Task<HttpResponseMessage> Post(object message, CancellationToken cancellationToken)
         {
             // https://docs.cometd.org/current/reference/#_messages
