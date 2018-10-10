@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Threading;
@@ -33,7 +34,11 @@ namespace Genesys.Bayeux.Client
         readonly CancellationTokenSource pollCancel = new CancellationTokenSource();
         volatile string currentClientId;
         volatile BayeuxAdvice lastAdvice;
-        
+
+        readonly IEnumerable<TimeSpan> reconnectDelays;
+        IEnumerator<TimeSpan> reconnectDelaysEnumerator;
+        TimeSpan currentReconnectDelay;
+
 
         /// <param name="httpClient">
         /// The HttpClient provided should prevent HTTP pipelining for POST requests, because long-polling HTTP 
@@ -53,12 +58,23 @@ namespace Genesys.Bayeux.Client
         /// </para>
         /// </param>
         /// <param name="url"></param>
-        public BayeuxClient(HttpClient httpClient, string url, TaskScheduler eventTaskScheduler = null)
+        /// <param name="reconnectDelays">
+        /// When a request results in network errors, reconnection trials will be delayed based on the 
+        /// values passed here. The last element of the collection will be re-used indefinitely.
+        /// </param>
+        public BayeuxClient(HttpClient httpClient, string url,
+            IEnumerable<TimeSpan> reconnectDelays = null,
+            TaskScheduler eventTaskScheduler = null)
         {
             this.httpClient = httpClient;
 
             // TODO: allow relative URL to HttpClient.BaseAddress
             this.url = url;
+
+            this.reconnectDelays = reconnectDelays ??
+                Enumerable.Repeat(TimeSpan.FromSeconds(5), 1);
+
+            this.reconnectDelaysEnumerator = this.reconnectDelays.GetEnumerator();
 
             this.eventTaskScheduler = ChooseTaskScheduler(eventTaskScheduler);
         }
@@ -88,10 +104,9 @@ namespace Genesys.Bayeux.Client
         {
             // TODO: avoid starting more than once
 
-            // TODO: how much timeout?
             await Handshake(cancellationToken);
 
-            // TODO: A way to test the re-handshake with a real server is to put some delay here, between the first handshake response,
+            // A way to test the re-handshake with a real server is to put some delay here, between the first handshake response,
             // and the first try to connect. That will cause an "Invalid client id" response, with an advice of reconnect=handshake.
             // This can also be tested with a fake server in unit tests.
             LoopPolling(pollCancel.Token);
@@ -169,6 +184,8 @@ namespace Genesys.Bayeux.Client
 
         async Task Poll(BayeuxAdvice advice, CancellationToken cancellationToken)
         {
+            var resetReconnectDelayProvider = true;
+
             try
             {
                 log.Debug($"Last advice is reconnect={advice.reconnect}, interval={advice.interval}");
@@ -206,15 +223,21 @@ namespace Genesys.Bayeux.Client
             catch (HttpRequestException e)
             {
                 OnConnectionStateChanged(ConnectionState.Connecting);
-                var retryDelay = 5000; // TODO: accept external implementation, with a backoff, for example
-                log.ErrorException($"HTTP request failed. Retrying after {retryDelay} ms.", e);
-                await Task.Delay(retryDelay);
+
+                resetReconnectDelayProvider = false;
+                if (reconnectDelaysEnumerator.MoveNext())
+                    currentReconnectDelay = reconnectDelaysEnumerator.Current;
+                log.ErrorException($"HTTP request failed. Retrying after {currentReconnectDelay}", e);
+                await Task.Delay(currentReconnectDelay);
             }
             catch (BayeuxRequestException e)
             {
                 OnConnectionStateChanged(ConnectionState.Connecting);
                 log.Error($"Bayeux request failed with error: {e.BayeuxError}");
             }
+
+            if (resetReconnectDelayProvider)
+                reconnectDelaysEnumerator = reconnectDelays.GetEnumerator();
         }
 
         public enum ConnectionState
@@ -325,6 +348,7 @@ namespace Genesys.Bayeux.Client
                 cancellationToken);
         }
 
+        // TODO: Add subscriptions to a collection. Re-subscribe on each reconnection.
         public Task Subscribe(string channel, CancellationToken cancellationToken = default(CancellationToken))
         {
             return Request(

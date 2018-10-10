@@ -137,6 +137,7 @@ namespace Tests
                 // response: {"timestamp":1536851691737,"status":500,"error":"Internal Server Error","message":"java.lang.IllegalArgumentException: Invalid channel id: pepe","path":"/statistics/v3/notifications"}
 
                 Thread.Sleep(TimeSpan.FromSeconds(11));
+                Thread.Sleep(TimeSpan.FromSeconds(180));
 
                 await bayeuxClient.Unsubscribe("/statistics/v3/service");
             }
