@@ -135,7 +135,7 @@ namespace Genesys.Bayeux.Client
             {
                 log.ErrorException("Long-polling stopped on unexpected exception.", e);
                 OnConnectionStateChanged(ConnectionState.DisconnectedOnError);
-                throw; // TODO: Handle exceptions on this unobserved task? Who would receive them? Just possible to log them?
+                throw; // unobserved exception
             }
         }
 
@@ -449,10 +449,7 @@ namespace Genesys.Bayeux.Client
             RunInEventTaskScheduler(() =>
             {
                 foreach (var ev in events)
-                {
                     OnEventReceived(new EventReceivedArgs(ev));
-                    // TODO: handle client exceptions?
-                }
             });
 
             var response = responseObj.ToObject<BayeuxResponse>();
