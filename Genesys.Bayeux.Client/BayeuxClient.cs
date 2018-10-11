@@ -274,10 +274,7 @@ namespace Genesys.Bayeux.Client
                 RunInEventTaskScheduler(() =>
                     ConnectionStateChanged?.Invoke(this, new ConnectionStateChangedArgs(state)));
         }   
-
-        // TODO: choose best JSON methods to use, and best configuration of JsonSerializer
-        readonly JsonSerializer jsonSerializer = JsonSerializer.Create();
-
+        
         async Task Handshake(CancellationToken cancellationToken)
         {
             OnConnectionStateChanged(ConnectionState.Connecting);

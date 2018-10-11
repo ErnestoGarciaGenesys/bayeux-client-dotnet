@@ -116,6 +116,8 @@ namespace Tests
             }
         }
 
+        // TODO: test ConnectionStateChangedEvents
+
 
         const string Url = "http://testing.net/";
         
