@@ -2,13 +2,15 @@
 using System.Collections.Generic;
 using System.Configuration;
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Genesys.Bayeux.Client;
-using HttpMock;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Moq;
+using Moq.Protected;
 using Newtonsoft.Json;
 
 namespace Tests
@@ -16,92 +18,11 @@ namespace Tests
     [TestClass]
     public class BayeuxClientTest
     {
-        public TestContext TestContext { get; set; }
-
-        string GetTestParam(string key)
-        {
-            var result = TestContext.Properties[key];
-            if (result == null)
-                throw new Exception($"TestRunParameter [{key}] not found. (See file test.template.runsettings)");
-            return (string)result;
-        }
-
-        string BaseURL;
-        string APIKey;
-        Auth.PasswordGrantTypeCredentials credentials;
-        object statistics;
-
-        [TestInitialize]
-        public void Init()
-        {
-            BaseURL = GetTestParam("BaseURL");
-            APIKey = GetTestParam("APIKey");
-
-            credentials = new Auth.PasswordGrantTypeCredentials()
-            {
-                UserName = GetTestParam("UserNamePath") + @"\" + GetTestParam("UserName"),
-                Password = GetTestParam("Password"),
-                ClientId = GetTestParam("ClientId"),
-                ClientSecret = GetTestParam("ClientSecret"),
-            };
-
-            // Random int, padded to 3 digits, with leading zeros if needed.
-            var id = new Random().Next(0, 1000).ToString("D3");
-
-            statistics = new
-            {
-                operationId = $"SUBSCRIPTION_ID_{id}",
-                data = new
-                {
-                    statistics = new[]
-                    {
-                        new
-                        {
-                            statisticId = $"STATISTIC_ID_{id}_0",
-                            definition = new
-                            {
-                                notificationMode = "Periodical",
-                                subject = "DNStatus",
-                                insensitivity = 0,
-                                category = "CurrentTime",
-                                mainMask = "*",
-                                notificationFrequency = 5,
-                            },
-                            objectId = GetTestParam("UserName"),
-                            objectType = "Agent"
-                        },
-                    }
-                }
-            };
-        }
-
-        async Task<HttpClient> InitHttpClient()
+        [TestMethod]
+        public void Stop_without_start()
         {
             var httpClient = new HttpClient();
-            httpClient.DefaultRequestHeaders.Add("x-api-key", APIKey);
-            var token = await Auth.Authenticate(httpClient, BaseURL, credentials);
-            httpClient.DefaultRequestHeaders.Add("Authorization", "Bearer " + token);
-            return httpClient;
-        }
-
-        BayeuxClient InitStatisticsBayeuxClient(HttpClient httpClient)
-        {
-            var bayeuxClient = new BayeuxClient(httpClient, BaseURL + "/statistics/v3/notifications");
-
-            bayeuxClient.EventReceived += (e, args) =>
-                Debug.WriteLine($"Event received on channel {args.Channel} with data\n{args.Data}");
-
-            bayeuxClient.ConnectionStateChanged += (e, args) =>
-                Debug.WriteLine($"Bayeux connection state changed to {args.ConnectionState}");
-
-            return bayeuxClient;
-        }
-
-        [TestMethod]
-        public async Task Stop_without_start()
-        {
-            var httpClient = await InitHttpClient();
-            using (var bayeuxClient = InitStatisticsBayeuxClient(httpClient))
+            using (var bayeuxClient = new BayeuxClient(httpClient, ""))
             {
                 Debug.WriteLine("Disposing...");
             }
@@ -109,101 +30,105 @@ namespace Tests
         }
 
         [TestMethod]
-        public async Task Subscribe_statistic()
-        {
-            var httpClient = await InitHttpClient();
-
-            using (var bayeuxClient = InitStatisticsBayeuxClient(httpClient))
-            {
-                await bayeuxClient.Start();
-
-                var response = await httpClient.PostAsync(
-                    BaseURL + "/statistics/v3/subscriptions?verbose=INFO",
-                    new StringContent(
-                        JsonConvert.SerializeObject(statistics),
-                        Encoding.UTF8,
-                        "application/json"));
-
-                var responseContent = await response.Content.ReadAsStringAsync();
-                Debug.WriteLine("Response to Subscribe: " + responseContent);
-
-                Thread.Sleep(TimeSpan.FromSeconds(1));
-
-                await bayeuxClient.Subscribe("/statistics/v3/updates"); // due to the wait, several events are already received along with the subscribe response
-                await bayeuxClient.Subscribe("/statistics/v3/service");
-
-                // I have received the following non-compliant error response from the Statistics API:
-                // request: [{"clientId":"256fs7hljxavbz317cdt1d7t882v","channel":"/meta/subscribe","subscription":"/pepe"}]
-                // response: {"timestamp":1536851691737,"status":500,"error":"Internal Server Error","message":"java.lang.IllegalArgumentException: Invalid channel id: pepe","path":"/statistics/v3/notifications"}
-
-                Thread.Sleep(TimeSpan.FromSeconds(11));
-                Thread.Sleep(TimeSpan.FromSeconds(180));
-
-                await bayeuxClient.Unsubscribe("/statistics/v3/service");
-            }
-
-            Thread.Sleep(TimeSpan.FromSeconds(2));
-        }
-
-        [TestMethod]
-        [ExpectedException(typeof(BayeuxRequestException))]
-        // response: {"timestamp":1536851691737,"status":500,"error":"Internal Server Error",
-        // "message":"java.lang.IllegalArgumentException: Invalid channel id: pepe",
-        // "path":"/statistics/v3/notifications"}
-        public async Task Subscribe_invalid_channel_id()
-        {
-            var httpClient = await InitHttpClient();
-            var bayeuxClient = new BayeuxClient(httpClient, BaseURL + "/statistics/v3/notifications");
-            await bayeuxClient.Start();
-            await bayeuxClient.Subscribe("pepe");
-        }
-
-        [TestMethod]
         [ExpectedException(typeof(BayeuxProtocolException))]
         public async Task Server_responds_with_no_channel()
         {
-            const string URI = "http://localhost:9191";
-            var serverStub = HttpMockRepository.At(URI);
-            serverStub.Stub(x => x.Post(""))
-                .Return(JsonConvert.SerializeObject(new { }))
-                .OK();
+            var mock = new Mock<HttpMessageHandler>();
+            var httpClient = new HttpClient(mock.Object);
 
-            using (var bayeuxClient = new BayeuxClient(new HttpClient(), URI))
+            mock.Protected().As<IHttpMessageHandlerProtected>()
+                .Setup(h => h.SendAsync(It.IsAny<HttpRequestMessage>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(buildBayeuxResponse(new { }));
+
+            using (var bayeuxClient = new BayeuxClient(httpClient, Url))
             {
                 await bayeuxClient.Start();
             }
         }
 
         [TestMethod]
-        [ExpectedException(typeof(BayeuxProtocolException))]
         public async Task Server_advices_no_reconnect_on_handshake()
         {
-            const string URI = "http://localhost:9191";
-            var serverStub = HttpMockRepository.At(URI);
-            serverStub.Stub(x => x.Post(""))
-                .Return(JsonConvert.SerializeObject(
-                    new []
-                    {
-                        new
-                        {
-                            minimumVersion = "1.0",
-                            clientId = "nv8g1psdzxpb9yol3z1l6zvk2p",
-                            supportedConnectionTypes = new [] { "long-polling","callback-polling" },
-                            advice = new { interval = 0, timeout = 20000, reconnect = "none" /*!*/ },
-                            channel = "/meta/handshake",
-                            version = "1.0",
-                            successful = true,
-                        }
-                    }))
-                .OK();
+            var mock = new Mock<HttpMessageHandler>();
+            var httpClient = new HttpClient(mock.Object);
 
-            using (var bayeuxClient = new BayeuxClient(new HttpClient(), URI))
+            mock.Protected().As<IHttpMessageHandlerProtected>()
+                .SetupSequence(h => h.SendAsync(It.IsAny<HttpRequestMessage>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(buildBayeuxResponse(
+                    new
+                    {
+                        minimumVersion = "1.0",
+                        clientId = "nv8g1psdzxpb9yol3z1l6zvk2p",
+                        supportedConnectionTypes = new[] { "long-polling", "callback-polling" },
+                        advice = new { interval = 0, timeout = 20000, reconnect = "none" /*!*/ },
+                        channel = "/meta/handshake",
+                        version = "1.0",
+                        successful = true,
+                    }))
+                .ReturnsAsync(buildBayeuxResponse(
+                    new
+                    {
+                        channel = "/meta/disconnect",
+                        successful = true,
+                    }));
+
+            using (var bayeuxClient = new BayeuxClient(httpClient, Url))
             {
                 await bayeuxClient.Start();
             }
+
+            mock.Protected().As<IHttpMessageHandlerProtected>()
+                .Verify(h => h.SendAsync(It.IsAny<HttpRequestMessage>(), It.IsAny<CancellationToken>()),
+                times: Times.Exactly(2));
         }
 
-        readonly object normalHandshakeResponse =
+        [TestMethod]
+        public async Task Reconnections()
+        {
+            var mock = new Mock<HttpMessageHandler>();
+            var httpClient = new HttpClient(mock.Object);
+            var setup = mock.Protected().As<IHttpMessageHandlerProtected>()
+                .SetupSequence(h => h.SendAsync(It.IsAny<HttpRequestMessage>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(buildBayeuxResponse(successfulHandshakeResponse))
+                .ReturnsAsync(buildBayeuxResponse(successfulConnectResponse))
+                .ReturnsAsync(buildBayeuxResponse(rehandshakeConnectResponse))
+                .ThrowsAsync(new HttpRequestException("mock raising exception"))
+                .ReturnsAsync(buildBayeuxResponse(successfulHandshakeResponse))
+                .ThrowsAsync(new HttpRequestException("mock raising exception"))
+                .ThrowsAsync(new HttpRequestException("mock raising exception"))
+                .ThrowsAsync(new HttpRequestException("mock raising exception"))
+                .ThrowsAsync(new HttpRequestException("mock raising exception"))
+                .ThrowsAsync(new HttpRequestException("mock raising exception"))
+                ;
+
+            for (var i = 0; i < 100; i++)
+                setup.Returns(() => 
+                    Task.Delay(TimeSpan.FromSeconds(5))
+                        .ContinueWith(t => buildBayeuxResponse(successfulConnectResponse)));
+
+            var bayeuxClient = new BayeuxClient(httpClient, Url,
+                reconnectDelays: new[] { TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2) });
+
+            using (bayeuxClient)
+            {
+                await bayeuxClient.Start();
+                await Task.Delay(TimeSpan.FromSeconds(20));
+            }
+        }
+
+
+        const string Url = "http://testing.net/";
+        
+        void LogBayeuxClientEvents(BayeuxClient bayeuxClient)
+        {
+            bayeuxClient.EventReceived += (e, args) =>
+                Debug.WriteLine($"Event received on channel {args.Channel} with data\n{args.Data}");
+
+            bayeuxClient.ConnectionStateChanged += (e, args) =>
+                Debug.WriteLine($"Bayeux connection state changed to {args.ConnectionState}");
+        }
+
+        static readonly object successfulHandshakeResponse =
             new
             {
                 minimumVersion = "1.0",
@@ -214,5 +139,42 @@ namespace Tests
                 version = "1.0",
                 successful = true,
             };
+
+        static readonly object successfulConnectResponse =
+            new
+            {
+                channel = "/meta/connect",
+                successful = true,
+            };
+
+        // real re-handshake advice, when too much time has passed without polling:
+        // [{"advice":{"interval":0,"reconnect":"handshake"},"channel":"/meta/connect","error":"402::Unknown client","successful":false}]
+        static readonly object rehandshakeConnectResponse =
+            new
+            {
+                channel = "/meta/connect",
+                successful = false,
+                error = "402::Unknown client",
+                advice = new { interval = 0, reconnect = "handshake" },
+            };
+
+        static readonly object eventMessage =
+            new
+            {
+                channel = "/test",
+                data = new { key = "event data" },
+            };
+
+        static HttpResponseMessage buildBayeuxResponse(params object[] messages) =>
+            new HttpResponseMessage()
+            {
+                StatusCode = HttpStatusCode.OK,
+                Content = new StringContent(JsonConvert.SerializeObject(messages)),
+            };
+
+        interface IHttpMessageHandlerProtected
+        {
+            Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken);
+        }
     }
 }

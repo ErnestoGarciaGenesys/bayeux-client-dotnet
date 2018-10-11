@@ -188,7 +188,6 @@ namespace Genesys.Bayeux.Client
 
             try
             {
-                log.Debug($"Last advice is reconnect={advice.reconnect}, interval={advice.interval}");
                 switch (advice.reconnect)
                 {
                     case "none":
