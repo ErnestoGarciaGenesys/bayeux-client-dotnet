@@ -3,8 +3,6 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
@@ -26,6 +24,7 @@ namespace Genesys.Bayeux.Client
 
             log = LogProvider.GetLogger(typeof(BayeuxClient).Namespace);
         }
+
 
         readonly string url;
         readonly HttpClient httpClient;
@@ -62,13 +61,13 @@ namespace Genesys.Bayeux.Client
         /// When a request results in network errors, reconnection trials will be delayed based on the 
         /// values passed here. The last element of the collection will be re-used indefinitely.
         /// </param>
-        public BayeuxClient(HttpClient httpClient, string url,
+        public BayeuxClient(
+            HttpClient httpClient,
+            string url,
             IEnumerable<TimeSpan> reconnectDelays = null,
             TaskScheduler eventTaskScheduler = null)
         {
             this.httpClient = httpClient;
-
-            // TODO: allow relative URL to HttpClient.BaseAddress
             this.url = url;
 
             this.reconnectDelays = reconnectDelays ??
@@ -96,13 +95,17 @@ namespace Genesys.Bayeux.Client
             }
         }
 
+        int started = 0;
+
         /// <summary>
         /// Does the Bayeux handshake, and starts long-polling.
         /// Handshake does not support re-negotiation; it fails at first unsuccessful response.
         /// </summary>
         public async Task Start(CancellationToken cancellationToken = default(CancellationToken))
         {
-            // TODO: avoid starting more than once
+            var alreadyStarted = Interlocked.Exchange(ref started, 1);
+            if (alreadyStarted == 1)
+                throw new Exception("Already started.");
 
             await Handshake(cancellationToken);
 
