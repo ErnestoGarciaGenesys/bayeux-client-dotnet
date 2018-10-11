@@ -1,5 +1,26 @@
-﻿
+# .NET Bayeux Client
 
+[Bayeux](https://docs.cometd.org/current/reference/#_bayeux) is a protocol that enables web-friendly message transport over HTTP, WebSockets, etc.
+
+This library provides a Bayeux client for .NET clients to receive events from a Bayeux server, through the HTTP long-polling transport.
+
+## Usage
+
+This is an example of usage:
+
+~~~cs
+var httpClient = new HttpClient();
+var bayeuxClient = new BayeuxClient(httpClient, BaseURL + "/notifications");
+
+bayeuxClient.EventReceived += (e, args) =>
+  Debug.WriteLine($"Event received on channel {args.Channel} with data\n{args.Data}");
+
+bayeuxClient.ConnectionStateChanged += (e, args) =>
+  Debug.WriteLine($"Bayeux connection state changed to {args.ConnectionState}");
+
+await bayeuxClient.Start();
+await bayeuxClient.Subscribe("/updates");
+~~~
 
 ## Logging
 
