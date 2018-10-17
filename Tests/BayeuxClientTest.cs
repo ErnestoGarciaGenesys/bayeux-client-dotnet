@@ -19,7 +19,7 @@ namespace Tests
     public class BayeuxClientTest
     {
         [TestMethod]
-        public void Stop_without_start()
+        public void Dispose_without_start()
         {
             var httpClient = new HttpClient();
             using (var bayeuxClient = new BayeuxClient(httpClient, ""))
