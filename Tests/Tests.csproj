@@ -72,6 +72,7 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="MoqExtensions.cs" />
     <Compile Include="RealStatisticsTest.cs" />
     <Compile Include="BayeuxClientTest.cs" />
     <Compile Include="DotNetChecks.cs" />

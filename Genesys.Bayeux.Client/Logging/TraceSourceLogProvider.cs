@@ -32,7 +32,7 @@ namespace Genesys.Bayeux.Client.Logging
 
         public TraceSourceLogger(string name)
         {
-            this.traceSource = new TraceSource(name/*, SourceLevels.All*/);
+            traceSource = new TraceSource(name/*, SourceLevels.All*/);
         }
 
         public bool Log(LogLevel logLevel, Func<string> messageFunc, Exception exception = null, params object[] formatParameters)

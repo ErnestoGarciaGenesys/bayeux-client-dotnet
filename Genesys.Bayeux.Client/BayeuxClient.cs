@@ -2,6 +2,7 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -32,7 +33,8 @@ namespace Genesys.Bayeux.Client
 
         readonly CancellationTokenSource pollCancel = new CancellationTokenSource();
         volatile string currentClientId;
-        volatile BayeuxAdvice lastAdvice;
+        volatile BayeuxAdvice lastAdvice = new BayeuxAdvice();
+        readonly ChannelList subscribedChannels = new ChannelList();
 
         readonly IEnumerable<TimeSpan> reconnectDelays;
         IEnumerator<TimeSpan> reconnectDelaysEnumerator;
@@ -291,6 +293,13 @@ namespace Genesys.Bayeux.Client
             currentClientId = response.clientId;
 
             OnConnectionStateChanged(ConnectionState.Connected);
+
+            var resubscribeChannels = subscribedChannels.Copy();
+
+            if (resubscribeChannels.Count != 0)
+            {
+                var _ = Subscribe(resubscribeChannels);
+            }
         }
 
         // On defining .NET events
@@ -347,36 +356,84 @@ namespace Genesys.Bayeux.Client
                 cancellationToken);
         }
 
-        // TODO: Add subscriptions to a collection. Re-subscribe on each reconnection.
-        public Task Subscribe(string channel, CancellationToken cancellationToken = default(CancellationToken))
+        class ChannelList
         {
-            return Request(
-                new
+            List<string> items;
+            object syncRoot;
+
+            public ChannelList()
+            {
+                items = new List<string>();
+                syncRoot = ((ICollection)items).SyncRoot;
+            }
+
+            public void Add(IEnumerable<string> channels)
+            {
+                lock (syncRoot)
                 {
-                    clientId = currentClientId,
-                    channel = "/meta/subscribe",
-                    subscription = channel,
-                },
-                cancellationToken);
+                    items.AddRange(channels);
+                }
+            }
+
+            public void Remove(IEnumerable<string> channels)
+            {
+                lock (syncRoot)
+                {
+                    foreach (var channel in channels)
+                        items.Remove(channel);
+                }
+            }
+
+            public List<string> Copy()
+            {
+                lock (syncRoot)
+                {
+                    return new List<string>(items);
+                }
+            }
         }
 
-        public Task Unsubscribe(string channel, CancellationToken cancellationToken = default(CancellationToken))
+        public Task Subscribe(string channel, CancellationToken cancellationToken = default(CancellationToken)) =>
+            Subscribe(new[] { channel }, cancellationToken);
+
+        public Task Subscribe(IEnumerable<string> channels, CancellationToken cancellationToken = default(CancellationToken))
         {
-            return Request(
-                new
-                {
-                    clientId = currentClientId,
-                    channel = "/meta/unsubscribe",
-                    subscription = channel,
-                },
-                cancellationToken);
+            subscribedChannels.Add(channels);
+            return SendIfClientId("/meta/subscribe", channels, cancellationToken);
         }
 
-        Task<HttpResponseMessage> Post(object message, CancellationToken cancellationToken)
+        public Task Unsubscribe(string channel, CancellationToken cancellationToken = default(CancellationToken)) =>
+            Unsubscribe(new[] { channel }, cancellationToken);
+
+        public Task Unsubscribe(IEnumerable<string> channels, CancellationToken cancellationToken = default(CancellationToken))
         {
-            // https://docs.cometd.org/current/reference/#_messages
-            // All Bayeux messages SHOULD be encapsulated in a JSON encoded array so that multiple messages may be transported together
-            var messageStr = JsonConvert.SerializeObject(new[] { message });
+            subscribedChannels.Remove(channels);
+            return SendIfClientId("/meta/unsubscribe", channels, cancellationToken);
+        }
+
+        static readonly Task CompletedTask = Task.FromResult<object>(null);
+
+        Task SendIfClientId(string metaChannel, IEnumerable<string> channels, CancellationToken cancellationToken)
+        {
+            var clientIdCopy = currentClientId;
+
+            if (clientIdCopy != null)
+                return Request(
+                    channels.Select(channel =>
+                        new
+                        {
+                            clientId = currentClientId,
+                            channel = metaChannel,
+                            subscription = channel,
+                        }),
+                    cancellationToken);
+            else
+                return CompletedTask;
+        }
+
+        Task<HttpResponseMessage> Post(IEnumerable<object> message, CancellationToken cancellationToken)
+        {
+            var messageStr = JsonConvert.SerializeObject(message);
 
             log.Debug($"Posting: {messageStr}");
 
@@ -397,8 +454,12 @@ namespace Genesys.Bayeux.Client
 
 #pragma warning restore 0649
 
-        // TODO: The response is actually not used elsewhere, no need to return it?
-        async Task<BayeuxResponse> Request(object request, CancellationToken cancellationToken = default(CancellationToken))
+        Task<BayeuxResponse> Request(object request, CancellationToken cancellationToken = default(CancellationToken)) =>
+            // https://docs.cometd.org/current/reference/#_messages
+            // All Bayeux messages SHOULD be encapsulated in a JSON encoded array so that multiple messages may be transported together
+            Request(new[] { request }, cancellationToken);
+
+        async Task<BayeuxResponse> Request(IEnumerable<object> request, CancellationToken cancellationToken = default(CancellationToken))
         {
             var httpResponse = await Post(request, cancellationToken);
 
