@@ -8,6 +8,14 @@
     <TargetFrameworks>netstandard2.0;net452</TargetFrameworks>
     <AssemblyName>Genesys.Bayeux.Client</AssemblyName>
     <RootNamespace>Genesys.Bayeux.Client</RootNamespace>
+    <Company>Genesys</Company>
+    <Product>Genesys PureEngage</Product>
+    <Version>0.0.1</Version>
+    <Description>This library provides a Bayeux client for .NET clients to receive events from a Bayeux server, through the HTTP long-polling transport.</Description>
+    <RepositoryUrl>https://github.com/ErnestoGarciaGenesys/bayeux-client-dotnet</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageTags>Bayeux Comet CometD LongPolling</PackageTags>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -25,8 +33,6 @@
     <PackageReference Include="Microsoft.CSharp" Version="4.4.0" />
     
     <PackageReference Include="Newtonsoft.Json" Version="11.0.2" />
-    
-    <PackageReference Include="System.ServiceModel.Primitives" Version="4.5.3" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)'=='net452'">

@@ -75,7 +75,7 @@ namespace Genesys.Bayeux.Client
             this.reconnectDelays = reconnectDelays ??
                 Enumerable.Repeat(TimeSpan.FromSeconds(5), 1);
 
-            this.reconnectDelaysEnumerator = this.reconnectDelays.GetEnumerator();
+            reconnectDelaysEnumerator = this.reconnectDelays.GetEnumerator();
 
             this.eventTaskScheduler = ChooseTaskScheduler(eventTaskScheduler);
         }
@@ -358,8 +358,8 @@ namespace Genesys.Bayeux.Client
 
         class ChannelList
         {
-            List<string> items;
-            object syncRoot;
+            readonly List<string> items;
+            readonly object syncRoot;
 
             public ChannelList()
             {
