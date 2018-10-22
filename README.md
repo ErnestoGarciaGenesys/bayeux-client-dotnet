@@ -1,5 +1,5 @@
 # .NET Bayeux Client
-[![NuGet Badge](https://buildstats.info/nuget/nunit)](https://www.nuget.org/packages/NUnit/)
+[![NuGet Badge](https://buildstats.info/nuget/Genesys.Bayeux.Client)](https://www.nuget.org/packages/Genesys.Bayeux.Client)
 
 [Bayeux](https://docs.cometd.org/current/reference/#_bayeux) is a protocol that enables web-friendly message transport over HTTP, WebSockets, etc.
 
