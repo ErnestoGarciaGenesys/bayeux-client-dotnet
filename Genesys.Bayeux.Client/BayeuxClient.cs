@@ -462,11 +462,12 @@ namespace Genesys.Bayeux.Client
         async Task<BayeuxResponse> Request(IEnumerable<object> request, CancellationToken cancellationToken = default(CancellationToken))
         {
             var httpResponse = await Post(request, cancellationToken);
-
             // As a stream it could have better performance, but logging is easier with strings.
             var responseStr = await httpResponse.Content.ReadAsStringAsync();
 
             log.Debug($"Received: {responseStr}");
+
+            httpResponse.EnsureSuccessStatusCode();
 
             var responseToken = JToken.Parse(responseStr);
             IEnumerable<JToken> tokens = responseToken is JArray ?
