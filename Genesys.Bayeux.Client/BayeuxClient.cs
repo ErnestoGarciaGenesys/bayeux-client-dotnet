@@ -39,6 +39,7 @@ namespace Genesys.Bayeux.Client
         readonly IEnumerable<TimeSpan> reconnectDelays;
         IEnumerator<TimeSpan> reconnectDelaysEnumerator;
         TimeSpan currentReconnectDelay;
+        bool rehandshakeOnFailure = false;
 
 
         /// <param name="httpClient">
@@ -73,7 +74,7 @@ namespace Genesys.Bayeux.Client
             this.url = url;
 
             this.reconnectDelays = reconnectDelays ??
-                Enumerable.Repeat(TimeSpan.FromSeconds(5), 1);
+                new List<TimeSpan> { TimeSpan.Zero, TimeSpan.FromSeconds(5) };
 
             reconnectDelaysEnumerator = this.reconnectDelays.GetEnumerator();
 
@@ -193,7 +194,13 @@ namespace Genesys.Bayeux.Client
 
             try
             {
-                switch (advice.reconnect)
+                if (rehandshakeOnFailure)
+                {
+                    rehandshakeOnFailure = false;
+                    log.Debug($"Re-handshaking due to previously failed HTTP request.");
+                    await Handshake(cancellationToken);
+                }
+                else switch (advice.reconnect)
                 {
                     case "none":
                         log.Debug("Long-polling stopped on server request.");
@@ -228,10 +235,11 @@ namespace Genesys.Bayeux.Client
             {
                 OnConnectionStateChanged(ConnectionState.Connecting);
 
+                rehandshakeOnFailure = true;
                 resetReconnectDelayProvider = false;
                 if (reconnectDelaysEnumerator.MoveNext())
                     currentReconnectDelay = reconnectDelaysEnumerator.Current;
-                log.ErrorException($"HTTP request failed. Retrying after {currentReconnectDelay}", e);
+                log.ErrorException($"HTTP request failed. Rehandshaking after {currentReconnectDelay}", e);
                 await Task.Delay(currentReconnectDelay);
             }
             catch (BayeuxRequestException e)
