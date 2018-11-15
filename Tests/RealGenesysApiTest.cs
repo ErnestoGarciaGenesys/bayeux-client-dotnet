@@ -14,7 +14,7 @@ using Newtonsoft.Json;
 namespace Tests
 {
     [TestClass]
-    public class RealStatisticsTest
+    public class RealGenesysApiTest
     {
         public TestContext TestContext { get; set; }
 
@@ -78,6 +78,12 @@ namespace Tests
         async Task<HttpClient> InitHttpClient()
         {
             var httpClient = new HttpClient();
+            await InitHttpClient(httpClient);
+            return httpClient;
+        }
+
+        async Task<HttpClient> InitHttpClient(HttpClient httpClient)
+        {
             httpClient.DefaultRequestHeaders.Add("x-api-key", APIKey);
             var token = await Auth.Authenticate(httpClient, BaseURL, credentials);
             httpClient.DefaultRequestHeaders.Add("Authorization", "Bearer " + token);
@@ -144,6 +150,60 @@ namespace Tests
             var bayeuxClient = new BayeuxClient(httpClient, BaseURL + "/statistics/v3/notifications");
             await bayeuxClient.Start();
             await bayeuxClient.Subscribe("pepe");
+        }
+
+        [TestMethod]
+        public async Task Too_long_connect_delay_causes_unauthorized_error_in_Workspace_API()
+        {
+            var httpClient = 
+                new WorkspaceApiEnsureAuthorizedHttpPoster(
+                    new HttpClientHttpPoster(await InitHttpClient()),
+                    BaseURL);
+
+            //var initResponse = await httpClient.PostAsync(
+            //    BaseURL + "/workspace/v3/initialize-workspace", 
+            //    new StringContent(""));
+            //initResponse.EnsureSuccessStatusCode();
+
+            using (var bayeuxClient = new BayeuxClient(httpClient, BaseURL + "/workspace/v3/notifications"))
+            {
+                await bayeuxClient.Start();
+                await bayeuxClient.Subscribe("/**");
+                Thread.Sleep(TimeSpan.FromSeconds(11));
+                await bayeuxClient.Unsubscribe("/statistics/v3/service");
+            }
+        }
+
+        public class WorkspaceApiEnsureAuthorizedHttpPoster : HttpPoster
+        {
+            readonly HttpPoster innerPoster;
+            readonly string baseUrl;
+
+            public WorkspaceApiEnsureAuthorizedHttpPoster(HttpPoster innerPoster, String baseUrl)
+            {
+                this.innerPoster = innerPoster;
+                this.baseUrl = baseUrl;
+            }
+
+            public async Task<HttpResponseMessage> PostAsync(string requestUri, string jsonContent, CancellationToken cancellationToken)
+            {
+                var response = await innerPoster.PostAsync(requestUri, jsonContent, cancellationToken);
+
+                if (response.StatusCode == HttpStatusCode.Forbidden)
+                {
+                    // TODO: check JSON content for unauthorized response
+
+                    var initResponse = await innerPoster.PostAsync(baseUrl + "/workspace/v3/initialize-workspace", "", cancellationToken);
+
+                    if (initResponse.IsSuccessStatusCode)
+                    {
+                        var secondResponse = await innerPoster.PostAsync(requestUri, jsonContent, cancellationToken);
+                        return secondResponse;
+                    }
+                }
+
+                return response;
+            }
         }
     }
 }

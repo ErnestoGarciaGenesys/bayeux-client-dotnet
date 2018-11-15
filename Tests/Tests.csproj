@@ -73,7 +73,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="MoqExtensions.cs" />
-    <Compile Include="RealStatisticsTest.cs" />
+    <Compile Include="RealGenesysApiTest.cs" />
     <Compile Include="BayeuxClientTest.cs" />
     <Compile Include="DotNetChecks.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

@@ -5,6 +5,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Threading;
@@ -13,6 +14,33 @@ using static Genesys.Bayeux.Client.Logging.LogProvider;
 
 namespace Genesys.Bayeux.Client
 {
+    /// <summary>
+    /// Abstraction for any HTTP client implementation.
+    /// Also allows implementation of retry policies, useful for servers that may need a session refresh, for example. This is in general not supported by HttpClient, as for some versions SendAsync disposes the content of HttpRequestMessage. This means that, for a failed SendAsync call, it can't be retried, as the HttpRequestMessage can't be reused.
+    /// </summary>
+    public interface HttpPoster
+    {
+        Task<HttpResponseMessage> PostAsync(string requestUri, string jsonContent, CancellationToken cancellationToken);
+    }
+
+    public class HttpClientHttpPoster : HttpPoster
+    {
+        readonly HttpClient httpClient;
+
+        public HttpClientHttpPoster(HttpClient httpClient)
+        {
+            this.httpClient = httpClient;
+        }
+
+        public Task<HttpResponseMessage> PostAsync(string requestUri, string jsonContent, CancellationToken cancellationToken)
+        {
+            return httpClient.PostAsync(
+                requestUri,
+                new StringContent(jsonContent, Encoding.UTF8, "application/json"),
+                cancellationToken);
+        }
+    }
+
     public class BayeuxClient : IDisposable
     {
         // Don't use string formatting for logging, as it is not supported by the internal TraceSource implementation.
@@ -28,7 +56,7 @@ namespace Genesys.Bayeux.Client
 
 
         readonly string url;
-        readonly HttpClient httpClient;
+        readonly HttpPoster httpPoster;
         readonly TaskScheduler eventTaskScheduler;
 
         readonly CancellationTokenSource pollCancel = new CancellationTokenSource();
@@ -42,10 +70,8 @@ namespace Genesys.Bayeux.Client
         bool rehandshakeOnFailure = false;
 
 
-        /// <param name="httpClient">
-        /// The HttpClient provided should prevent HTTP pipelining for POST requests, because long-polling HTTP 
-        /// requests can delay other concurrent HTTP requests. If you are using an HttpClient from a WebRequestHandler, 
-        /// then you should set WebRequestHandler.AllowPipelining to false.
+        /// <param name="httpPoster">
+        /// An HTTP POST implementation. It should not do HTTP pipelining (rarely done for POSTs anyway).
         /// See https://docs.cometd.org/current/reference/#_two_connection_operation.
         /// </param>
         /// <param name="eventTaskScheduler">
@@ -65,12 +91,12 @@ namespace Genesys.Bayeux.Client
         /// values passed here. The last element of the collection will be re-used indefinitely.
         /// </param>
         public BayeuxClient(
-            HttpClient httpClient,
+            HttpPoster httpPoster,
             string url,
             IEnumerable<TimeSpan> reconnectDelays = null,
             TaskScheduler eventTaskScheduler = null)
         {
-            this.httpClient = httpClient;
+            this.httpPoster = httpPoster;
             this.url = url;
 
             this.reconnectDelays = reconnectDelays ??
@@ -79,6 +105,15 @@ namespace Genesys.Bayeux.Client
             reconnectDelaysEnumerator = this.reconnectDelays.GetEnumerator();
 
             this.eventTaskScheduler = ChooseTaskScheduler(eventTaskScheduler);
+        }
+
+        public BayeuxClient(
+            HttpClient httpClient, 
+            string url, 
+            IEnumerable<TimeSpan> reconnectDelays = null, 
+            TaskScheduler eventTaskScheduler = null)
+            : this(new HttpClientHttpPoster(httpClient), url, reconnectDelays, eventTaskScheduler)
+        {
         }
 
         static TaskScheduler ChooseTaskScheduler(TaskScheduler eventTaskScheduler)
@@ -442,13 +477,8 @@ namespace Genesys.Bayeux.Client
         Task<HttpResponseMessage> Post(IEnumerable<object> message, CancellationToken cancellationToken)
         {
             var messageStr = JsonConvert.SerializeObject(message);
-
             log.Debug($"Posting: {messageStr}");
-
-            return httpClient.PostAsync(
-                url,
-                new StringContent(messageStr, Encoding.UTF8, "application/json"),
-                cancellationToken);
+            return httpPoster.PostAsync(url, messageStr, cancellationToken);
         }
 
 #pragma warning disable 0649 // "Field is never assigned to". These fields will be assigned by JSON deserialization
