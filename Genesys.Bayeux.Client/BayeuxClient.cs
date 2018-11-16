@@ -340,9 +340,7 @@ namespace Genesys.Bayeux.Client
             var resubscribeChannels = subscribedChannels.Copy();
 
             if (resubscribeChannels.Count != 0)
-            {
-                var _ = Subscribe(resubscribeChannels);
-            }
+                _ = TrySubscribe(resubscribeChannels);
         }
 
         // On defining .NET events
@@ -436,42 +434,65 @@ namespace Genesys.Bayeux.Client
             }
         }
 
+        /// <summary>
+        /// Adds a subscription. Subscribes immediately if this BayeuxClient is connected.
+        /// This is equivalent to <see cref="Subscribe(IEnumerable{string}, CancellationToken)"/>, but does not throw an exception when not currently connected.
+        /// </summary>
+        /// <param name="channels"></param>
+        public void AddSubscriptions(params string[] channels)
+        {
+            Subscribe(channels);
+        }
+
+        /// <summary>
+        /// Removes subscriptions. Unsubscribes immediately if this BayeuxClient is connected.
+        /// This is equivalent to <see cref="Unsubscribe(IEnumerable{string}, CancellationToken)"/>, but does not throw an exception when not currently connected.
+        /// </summary>
+        /// <param name="channels"></param>
+        public void RemoveSubscriptions(params string[] channels) =>
+            Unsubscribe(channels);
+
+        /// <exception cref="InvalidOperationException">If the Bayeux connection is not currently connected.</exception>
         public Task Subscribe(string channel, CancellationToken cancellationToken = default(CancellationToken)) =>
             Subscribe(new[] { channel }, cancellationToken);
 
+        /// <exception cref="InvalidOperationException">If the Bayeux connection is not currently connected.</exception>
         public Task Subscribe(IEnumerable<string> channels, CancellationToken cancellationToken = default(CancellationToken))
         {
             subscribedChannels.Add(channels);
-            return SendIfClientId("/meta/subscribe", channels, cancellationToken);
+            return TrySubscribe(channels, cancellationToken);
         }
 
+        Task TrySubscribe(IEnumerable<string> channels, CancellationToken cancellationToken = default(CancellationToken)) =>
+            TrySubscriptionOperation("/meta/subscribe", channels, cancellationToken);
+
+        /// <exception cref="InvalidOperationException">If the Bayeux connection is not currently connected.</exception>
         public Task Unsubscribe(string channel, CancellationToken cancellationToken = default(CancellationToken)) =>
             Unsubscribe(new[] { channel }, cancellationToken);
 
+        /// <exception cref="InvalidOperationException">If the Bayeux connection is not currently connected.</exception>
         public Task Unsubscribe(IEnumerable<string> channels, CancellationToken cancellationToken = default(CancellationToken))
         {
             subscribedChannels.Remove(channels);
-            return SendIfClientId("/meta/unsubscribe", channels, cancellationToken);
+            return TrySubscriptionOperation("/meta/unsubscribe", channels, cancellationToken);
         }
 
-        static readonly Task CompletedTask = Task.FromResult<object>(null);
-
-        Task SendIfClientId(string metaChannel, IEnumerable<string> channels, CancellationToken cancellationToken)
+        async Task TrySubscriptionOperation(string metaChannel, IEnumerable<string> channels, CancellationToken cancellationToken)
         {
             var clientIdCopy = currentClientId;
 
-            if (clientIdCopy != null)
-                return Request(
-                    channels.Select(channel =>
-                        new
-                        {
-                            clientId = currentClientId,
-                            channel = metaChannel,
-                            subscription = channel,
-                        }),
-                    cancellationToken);
-            else
-                return CompletedTask;
+            if (clientIdCopy == null)
+                throw new InvalidOperationException("Not connected. Operation will be effective for next connections.");
+
+            await Request(
+                channels.Select(channel =>
+                    new
+                    {
+                        clientId = currentClientId,
+                        channel = metaChannel,
+                        subscription = channel,
+                    }),
+                cancellationToken);
         }
 
         Task<HttpResponseMessage> Post(IEnumerable<object> message, CancellationToken cancellationToken)

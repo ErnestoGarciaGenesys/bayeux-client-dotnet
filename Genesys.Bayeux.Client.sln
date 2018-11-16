@@ -28,4 +28,7 @@ Global
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {CF3E3EC5-0BF9-4D3B-9A22-0FF6C752C92A}
 	EndGlobalSection
+	GlobalSection(NDepend) = preSolution
+		Project = ".\Genesys.Bayeux.Client.ndproj"
+	EndGlobalSection
 EndGlobal

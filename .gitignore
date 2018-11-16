@@ -1,3 +1,7 @@
+# Exclude NDepend files
+*.ndproj
+/NDependOut
+
 # Exclude test runsettings, as they contain secrets, except templates.
 *.runsettings
 !*.template.runsettings

@@ -82,8 +82,6 @@ namespace Tests
                 times: Times.Exactly(2));
         }
 
-
-
         [TestMethod]
         public async Task Reconnections()
         {
@@ -146,7 +144,7 @@ namespace Tests
 
             using (bayeuxClient)
             {
-                await bayeuxClient.Subscribe("/mychannel");
+                bayeuxClient.AddSubscriptions("/mychannel");
                 await bayeuxClient.Start();
                 await Task.Delay(TimeSpan.FromSeconds(2));
             }
@@ -229,6 +227,40 @@ namespace Tests
         interface IHttpMessageHandlerProtected
         {
             Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken);
+        }
+
+        [TestMethod]
+        [ExpectedException(typeof(InvalidOperationException))]
+        public async Task Subscribe_throws_exception_when_not_connected()
+        {
+            var httpPoster = new Mock<HttpPoster>();
+            var bayeuxClient = new BayeuxClient(httpPoster.Object, "none");
+            await bayeuxClient.Subscribe("dummy");
+        }
+
+        [TestMethod]
+        [ExpectedException(typeof(InvalidOperationException))]
+        public async Task Unsubscribe_throws_exception_when_not_connected()
+        {
+            var httpPoster = new Mock<HttpPoster>();
+            var bayeuxClient = new BayeuxClient(httpPoster.Object, "none");
+            await bayeuxClient.Unsubscribe("dummy");
+        }
+
+        [TestMethod]
+        public void AddSubscriptions_succeeds_when_not_connected()
+        {
+            var httpPoster = new Mock<HttpPoster>();
+            var bayeuxClient = new BayeuxClient(httpPoster.Object, "none");
+            bayeuxClient.AddSubscriptions("dummy");
+        }
+
+        [TestMethod]
+        public void RemoveSubscriptions_succeeds_when_not_connected()
+        {
+            var httpPoster = new Mock<HttpPoster>();
+            var bayeuxClient = new BayeuxClient(httpPoster.Object, "none");
+            bayeuxClient.RemoveSubscriptions("dummy");
         }
     }
 }
