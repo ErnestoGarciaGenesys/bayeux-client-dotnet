@@ -19,8 +19,9 @@ bayeuxClient.EventReceived += (e, args) =>
 bayeuxClient.ConnectionStateChanged += (e, args) =>
   Debug.WriteLine($"Bayeux connection state changed to {args.ConnectionState}");
 
+bayeuxClient.AddSubscription("/updates");
+
 await bayeuxClient.Start();
-await bayeuxClient.Subscribe("/updates");
 ~~~
 
 ## Logging
