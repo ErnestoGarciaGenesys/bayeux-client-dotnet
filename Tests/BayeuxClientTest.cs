@@ -60,7 +60,12 @@ namespace Tests
                         minimumVersion = "1.0",
                         clientId = "nv8g1psdzxpb9yol3z1l6zvk2p",
                         supportedConnectionTypes = new[] { "long-polling", "callback-polling" },
-                        advice = new { interval = 0, timeout = 20000, reconnect = "none" /*!*/ },
+                        advice = new
+                        {
+                            interval = 0,
+                            timeout = 20000,
+                            reconnect = "none" // !!!
+                        },
                         channel = "/meta/handshake",
                         version = "1.0",
                         successful = true,
@@ -100,7 +105,7 @@ namespace Tests
                 .ThrowsAsync(new HttpRequestException("mock raising exception"))
                 .ReturnsIndefinitely(() =>
                   Task.Delay(TimeSpan.FromSeconds(5))
-                      .ContinueWith(t => BuildBayeuxResponse(successfulConnectResponse)))
+                      .ContinueWith(t => BuildBayeuxResponse(successfulHandshakeResponse)))
                 ;
 
             var bayeuxClient = new BayeuxClient(new HttpClient(mock.Object), Url,

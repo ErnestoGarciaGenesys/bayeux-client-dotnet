@@ -60,7 +60,7 @@ namespace Genesys.Bayeux.Client
         readonly TaskScheduler eventTaskScheduler;
 
         readonly CancellationTokenSource pollCancel = new CancellationTokenSource();
-        volatile string currentClientId;
+        volatile BayeuxConnection currentConnection;
         volatile BayeuxAdvice lastAdvice = new BayeuxAdvice();
         readonly ChannelList subscribedChannels = new ChannelList();
 
@@ -145,11 +145,12 @@ namespace Genesys.Bayeux.Client
             if (alreadyStarted == 1)
                 throw new Exception("Already started.");
 
-            await Handshake(cancellationToken);
+            currentConnection = await Handshake(cancellationToken);
 
             // A way to test the re-handshake with a real server is to put some delay here, between the first handshake response,
             // and the first try to connect. That will cause an "Invalid client id" response, with an advice of reconnect=handshake.
             // This can also be tested with a fake server in unit tests.
+
             LoopPolling(pollCancel.Token);
         }
 
@@ -158,9 +159,7 @@ namespace Genesys.Bayeux.Client
             try
             {
                 while (!pollCancel.IsCancellationRequested)
-                {
-                    await Poll(lastAdvice, cancellationToken);
-                }
+                    await Poll(lastAdvice, pollCancel.Token);
 
                 OnConnectionStateChanged(ConnectionState.Disconnected);
             }
@@ -186,18 +185,15 @@ namespace Genesys.Bayeux.Client
         {
             StopLongPolling();
 
-            var clientId = Interlocked.Exchange(ref currentClientId, null);
-
-            if (clientId != null)
-                await Disconnect(clientId, cancellationToken);
+            var connection = Interlocked.Exchange(ref currentConnection, null);
+            if (connection != null)
+                await connection.Disconnect(cancellationToken);
         }
 
         protected virtual void Dispose(bool disposing)
         {
             if (disposing)
-            {
-                var _ = Stop();
-            }
+                _ = Stop();
             else
                 StopLongPolling();
         }
@@ -233,7 +229,7 @@ namespace Genesys.Bayeux.Client
                 {
                     rehandshakeOnFailure = false;
                     log.Debug($"Re-handshaking due to previously failed HTTP request.");
-                    await Handshake(cancellationToken);
+                    currentConnection = await Handshake(cancellationToken);
                 }
                 else switch (advice.reconnect)
                 {
@@ -253,7 +249,7 @@ namespace Genesys.Bayeux.Client
                     case "handshake":
                         log.Debug($"Re-handshaking after {advice.interval} ms on server request.");
                         await Task.Delay(advice.interval);
-                        await Handshake(cancellationToken);
+                        currentConnection = await Handshake(cancellationToken);
                         break;
 
                     case "retry":
@@ -262,7 +258,7 @@ namespace Genesys.Bayeux.Client
                             log.Debug($"Re-connecting after {advice.interval} ms on server request.");
 
                         await Task.Delay(advice.interval);
-                        await Connect(cancellationToken);
+                        await currentConnection.Connect(cancellationToken);
                         break;
                 }
             }
@@ -311,7 +307,7 @@ namespace Genesys.Bayeux.Client
 
         public event EventHandler<ConnectionStateChangedArgs> ConnectionStateChanged;
 
-        protected virtual void OnConnectionStateChanged(ConnectionState state)
+        protected internal virtual void OnConnectionStateChanged(ConnectionState state)
         {
             var oldConnectionState = Interlocked.Exchange(ref currentConnectionState, (int) state);
 
@@ -320,7 +316,7 @@ namespace Genesys.Bayeux.Client
                     ConnectionStateChanged?.Invoke(this, new ConnectionStateChangedArgs(state)));
         }   
         
-        async Task Handshake(CancellationToken cancellationToken)
+        async Task<BayeuxConnection> Handshake(CancellationToken cancellationToken)
         {
             OnConnectionStateChanged(ConnectionState.Connecting);
 
@@ -333,14 +329,14 @@ namespace Genesys.Bayeux.Client
                 },
                 cancellationToken);
 
-            currentClientId = response.clientId;
-
             OnConnectionStateChanged(ConnectionState.Connected);
 
             var resubscribeChannels = subscribedChannels.Copy();
 
             if (resubscribeChannels.Count != 0)
                 _ = TrySubscribe(resubscribeChannels);
+
+            return new BayeuxConnection(response.clientId, this);
         }
 
         // On defining .NET events
@@ -371,31 +367,6 @@ namespace Genesys.Bayeux.Client
 
         protected virtual void OnEventReceived(EventReceivedArgs args)
             => EventReceived?.Invoke(this, args);
-
-        async Task Connect(CancellationToken cancellationToken)
-        {
-            await Request(
-                new
-                {
-                    clientId = currentClientId,
-                    channel = "/meta/connect",
-                    connectionType = "long-polling",
-                },
-                cancellationToken);
-
-            OnConnectionStateChanged(ConnectionState.Connected);
-        }
-
-        Task Disconnect(string clientId, CancellationToken cancellationToken = default(CancellationToken))
-        {
-            return Request(
-                new
-                {
-                    clientId,
-                    channel = "/meta/disconnect",
-                },
-                cancellationToken);
-        }
 
         class ChannelList
         {
@@ -439,10 +410,8 @@ namespace Genesys.Bayeux.Client
         /// This is equivalent to <see cref="Subscribe(IEnumerable{string}, CancellationToken)"/>, but does not throw an exception when not currently connected.
         /// </summary>
         /// <param name="channels"></param>
-        public void AddSubscriptions(params string[] channels)
-        {
+        public void AddSubscriptions(params string[] channels) =>
             Subscribe(channels);
-        }
 
         /// <summary>
         /// Removes subscriptions. Unsubscribes immediately if this BayeuxClient is connected.
@@ -479,20 +448,12 @@ namespace Genesys.Bayeux.Client
 
         async Task TrySubscriptionOperation(string metaChannel, IEnumerable<string> channels, CancellationToken cancellationToken)
         {
-            var clientIdCopy = currentClientId;
+            var connection = currentConnection;
 
-            if (clientIdCopy == null)
+            if (connection == null)
                 throw new InvalidOperationException("Not connected. Operation will be effective for next connections.");
 
-            await Request(
-                channels.Select(channel =>
-                    new
-                    {
-                        clientId = currentClientId,
-                        channel = metaChannel,
-                        subscription = channel,
-                    }),
-                cancellationToken);
+            await connection.DoSubscriptionOperation(metaChannel, channels, cancellationToken);
         }
 
         Task<HttpResponseMessage> Post(IEnumerable<object> message, CancellationToken cancellationToken)
@@ -504,7 +465,7 @@ namespace Genesys.Bayeux.Client
 
 #pragma warning disable 0649 // "Field is never assigned to". These fields will be assigned by JSON deserialization
 
-        class BayeuxResponse
+        internal class BayeuxResponse
         {
             public bool successful;
             public string error;
@@ -513,7 +474,7 @@ namespace Genesys.Bayeux.Client
 
 #pragma warning restore 0649
 
-        Task<BayeuxResponse> Request(object request, CancellationToken cancellationToken = default(CancellationToken)) =>
+        internal Task<BayeuxResponse> Request(object request, CancellationToken cancellationToken = default(CancellationToken)) =>
             // https://docs.cometd.org/current/reference/#_messages
             // All Bayeux messages SHOULD be encapsulated in a JSON encoded array so that multiple messages may be transported together
             Request(new[] { request }, cancellationToken);
