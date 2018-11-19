@@ -3,6 +3,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -39,16 +40,26 @@ namespace Genesys.Bayeux.Client
             authRequest.Headers.Add("Accept", "application/json");
 
             var response = await httpClient.SendAsync(authRequest);
-            response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync();
-            var json = JObject.Parse(responseContent);
 
-            var error = json["error"];
-            if (error != null)
-                throw new AuthException(error.ToString(), json["error_description"]?.ToString());
-            
-            return json["access_token"].ToString();
+            try
+            {
+                var json = JObject.Parse(responseContent);
+
+                var error = json["error"];
+                if (error != null)
+                    throw new AuthException(error.ToString(), json["error_description"]?.ToString());
+
+                response.EnsureSuccessStatusCode();
+
+                return json["access_token"].ToString();
+            }
+            catch (JsonReaderException)
+            {
+                response.EnsureSuccessStatusCode();
+                throw;
+            }
         }
     }
 }

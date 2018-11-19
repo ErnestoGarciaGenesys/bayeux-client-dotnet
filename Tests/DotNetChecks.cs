@@ -33,5 +33,65 @@ namespace Tests
                 Debug.WriteLine($"Inside task: SynchronizationContext.Current = {SynchronizationContext.Current}");
             });
         }
+
+        [TestMethod]
+        public void Rethrow_does_not_preserve_stack_trace_line_in_same_method()
+        {
+            try
+            {
+                throw new Exception("Test");
+            }
+            catch
+            {
+                throw;
+            }
+        }
+
+        void ThrowExc() => throw new Exception("Test");
+
+        [TestMethod]
+        public void Rethrow_preserves_stack_trace_in_another_method()
+        {
+            try
+            {
+                ThrowExc();
+            }
+            catch
+            {
+                throw;
+            }
+        }
+
+        [TestMethod]
+        public async Task Rethrow_preserves_stack_trace_in_same_method_async()
+        {
+            try
+            {
+                await Task.Run(() => throw new Exception("Test"));
+            }
+            catch (Exception e)
+            {
+                Debug.WriteLine(e);
+                throw;
+            }
+        }
+
+        async Task ThrowExcAsync()
+        {
+            await Task.Run(() => throw new Exception("Test"));
+        }
+
+        [TestMethod]
+        public async Task Rethrow_preserves_stack_trace_in_another_method_async()
+        {
+            try
+            {
+                await ThrowExcAsync();
+            }
+            catch
+            {
+                throw;
+            }
+        }
     }
 }

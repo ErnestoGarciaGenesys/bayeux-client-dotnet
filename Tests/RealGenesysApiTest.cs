@@ -110,6 +110,10 @@ namespace Tests
 
             using (var bayeuxClient = InitStatisticsBayeuxClient(httpClient))
             {
+                bayeuxClient.AddSubscriptions(
+                    "/statistics/v3/updates",
+                    "/statistics/v3/service");
+
                 await bayeuxClient.Start();
 
                 var response = await httpClient.PostAsync(
@@ -123,9 +127,6 @@ namespace Tests
                 Debug.WriteLine("Response to Subscribe: " + responseContent);
 
                 Thread.Sleep(TimeSpan.FromSeconds(1));
-
-                await bayeuxClient.Subscribe("/statistics/v3/updates"); // due to the wait, several events are already received along with the subscribe response
-                await bayeuxClient.Subscribe("/statistics/v3/service");
 
                 // I have received the following non-compliant error response from the Statistics API:
                 // request: [{"clientId":"256fs7hljxavbz317cdt1d7t882v","channel":"/meta/subscribe","subscription":"/pepe"}]
