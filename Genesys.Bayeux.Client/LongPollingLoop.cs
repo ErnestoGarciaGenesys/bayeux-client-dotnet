@@ -18,25 +18,18 @@ namespace Genesys.Bayeux.Client
         readonly BayeuxClient client;
         readonly CancellationTokenSource pollCancel = new CancellationTokenSource();
 
+        readonly ReconnectDelays reconnectDelays;
         BayeuxConnection currentConnection;
         BayeuxAdvice lastAdvice = new BayeuxAdvice();
-
-        readonly IEnumerable<TimeSpan> reconnectDelays;
-        IEnumerator<TimeSpan> reconnectDelaysEnumerator;
-        TimeSpan currentReconnectDelay;
         bool rehandshakeOnFailure = false;
-        
+
 
         public LongPollingLoop(
             BayeuxClient client, // TODO: remove reference to client
             IEnumerable<TimeSpan> reconnectDelays)
         {
             this.client = client;
-
-            this.reconnectDelays = reconnectDelays ??
-                new List<TimeSpan> { TimeSpan.Zero, TimeSpan.FromSeconds(5) };
-
-            reconnectDelaysEnumerator = this.reconnectDelays.GetEnumerator();
+            this.reconnectDelays = new ReconnectDelays(reconnectDelays);
         }
 
         readonly BooleanLatch startLatch = new BooleanLatch();
@@ -83,7 +76,7 @@ namespace Genesys.Bayeux.Client
 
         async Task Poll()
         {
-            var resetReconnectDelayProvider = true;
+            reconnectDelays.ResetIfLastSucceeded();
 
             try
             {
@@ -94,55 +87,50 @@ namespace Genesys.Bayeux.Client
                     await Handshake(pollCancel.Token);
                 }
                 else switch (lastAdvice.reconnect)
-                {
-                    case "none":
-                        log.Debug("Long-polling stopped on server request.");
-                        Stop();
-                        break;
+                    {
+                        case "none":
+                            log.Debug("Long-polling stopped on server request.");
+                            Stop();
+                            break;
 
-                    // https://docs.cometd.org/current/reference/#_the_code_long_polling_code_response_messages
-                    // interval: the number of milliseconds the client SHOULD wait before issuing another long poll request
+                        // https://docs.cometd.org/current/reference/#_the_code_long_polling_code_response_messages
+                        // interval: the number of milliseconds the client SHOULD wait before issuing another long poll request
 
-                    // usual sample advice:
-                    // {"interval":0,"timeout":20000,"reconnect":"retry"}
-                    // another sample advice, when too much time without polling:
-                    // [{"advice":{"interval":0,"reconnect":"handshake"},"channel":"/meta/connect","error":"402::Unknown client","successful":false}]
+                        // usual sample advice:
+                        // {"interval":0,"timeout":20000,"reconnect":"retry"}
+                        // another sample advice, when too much time without polling:
+                        // [{"advice":{"interval":0,"reconnect":"handshake"},"channel":"/meta/connect","error":"402::Unknown client","successful":false}]
 
-                    case "handshake":
-                        log.Debug($"Re-handshaking after {lastAdvice.interval} ms on server request.");
-                        await Task.Delay(lastAdvice.interval);
-                        await Handshake(pollCancel.Token);
-                        break;
+                        case "handshake":
+                            log.Debug($"Re-handshaking after {lastAdvice.interval} ms on server request.");
+                            await Task.Delay(lastAdvice.interval);
+                            await Handshake(pollCancel.Token);
+                            break;
 
-                    case "retry":
-                    default:
-                        if (lastAdvice.interval > 0)
-                            log.Debug($"Re-connecting after {lastAdvice.interval} ms on server request.");
+                        case "retry":
+                        default:
+                            if (lastAdvice.interval > 0)
+                                log.Debug($"Re-connecting after {lastAdvice.interval} ms on server request.");
 
-                        await Task.Delay(lastAdvice.interval);
-                        await Connect(pollCancel.Token);
-                        break;
-                }
+                            await Task.Delay(lastAdvice.interval);
+                            await Connect(pollCancel.Token);
+                            break;
+                    }
             }
             catch (HttpRequestException e)
             {
                 client.OnConnectionStateChanged(ConnectionState.Connecting);
-
                 rehandshakeOnFailure = true;
-                resetReconnectDelayProvider = false;
-                if (reconnectDelaysEnumerator.MoveNext())
-                    currentReconnectDelay = reconnectDelaysEnumerator.Current;
-                log.ErrorException($"HTTP request failed. Rehandshaking after {currentReconnectDelay}", e);
-                await Task.Delay(currentReconnectDelay);
+
+                var reconnectDelay = reconnectDelays.GetNext();
+                log.ErrorException($"HTTP request failed. Rehandshaking after {reconnectDelay}", e);
+                await Task.Delay(reconnectDelay);
             }
             catch (BayeuxRequestException e)
             {
                 client.OnConnectionStateChanged(ConnectionState.Connecting);
                 log.Error($"Bayeux request failed with error: {e.BayeuxError}");
             }
-
-            if (resetReconnectDelayProvider)
-                reconnectDelaysEnumerator = reconnectDelays.GetEnumerator();
         }
 
         async Task Handshake(CancellationToken cancellationToken)
@@ -185,5 +173,39 @@ namespace Genesys.Bayeux.Client
             public int interval = 0;
         }
         #pragma warning restore 0649
+    }
+
+    class ReconnectDelays
+    {
+        readonly IEnumerable<TimeSpan> delays;
+
+        IEnumerator<TimeSpan> currentDelaysEnumerator;
+        TimeSpan currentDelay;
+        bool lastSucceeded = true;
+
+
+        public ReconnectDelays(IEnumerable<TimeSpan> delays)
+        {
+            this.delays = delays ??
+                new List<TimeSpan> { TimeSpan.Zero, TimeSpan.FromSeconds(5) };
+        }
+
+        public void ResetIfLastSucceeded()
+        {
+            if (lastSucceeded)
+                currentDelaysEnumerator = delays.GetEnumerator();
+
+            lastSucceeded = true;
+        }
+
+        public TimeSpan GetNext()
+        {
+            lastSucceeded = false;
+
+            if (currentDelaysEnumerator.MoveNext())
+                currentDelay = currentDelaysEnumerator.Current;
+
+            return currentDelay;
+        }
     }
 }
