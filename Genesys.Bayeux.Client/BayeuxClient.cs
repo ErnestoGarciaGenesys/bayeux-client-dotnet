@@ -61,7 +61,7 @@ namespace Genesys.Bayeux.Client
         readonly Subscriber subscriber;
         readonly LongPollingLoop longPollingLoop;
 
-        internal volatile BayeuxConnection currentConnection;
+        volatile BayeuxConnection currentConnection;
 
 
         /// <param name="httpPoster">
@@ -192,25 +192,12 @@ namespace Genesys.Bayeux.Client
             if (oldConnectionState != (int)state)
                 RunInEventTaskScheduler(() =>
                     ConnectionStateChanged?.Invoke(this, new ConnectionStateChangedArgs(state)));
-        }   
-        
-        internal async Task<JObject> Handshake(CancellationToken cancellationToken)
+        }
+
+        internal void SetNewConnection(BayeuxConnection currentConnection)
         {
-            OnConnectionStateChanged(ConnectionState.Connecting);
-
-            var response = await Request(
-                new
-                {
-                    channel = "/meta/handshake",
-                    version = "1.0",
-                    supportedConnectionTypes = new[] { "long-polling" },
-                },
-                cancellationToken);
-
-            currentConnection = new BayeuxConnection((string)response["clientId"], this);
+            this.currentConnection = currentConnection;
             subscriber.OnConnected();
-            OnConnectionStateChanged(ConnectionState.Connected);
-            return response;
         }
 
         // On defining .NET events

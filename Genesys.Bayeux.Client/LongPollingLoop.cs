@@ -17,7 +17,8 @@ namespace Genesys.Bayeux.Client
         readonly BayeuxClient client;
         readonly CancellationTokenSource pollCancel = new CancellationTokenSource();
 
-        volatile BayeuxAdvice lastAdvice = new BayeuxAdvice();
+        BayeuxConnection currentConnection;
+        BayeuxAdvice lastAdvice = new BayeuxAdvice();
 
         readonly IEnumerable<TimeSpan> reconnectDelays;
         IEnumerator<TimeSpan> reconnectDelaysEnumerator;
@@ -26,7 +27,9 @@ namespace Genesys.Bayeux.Client
 
         int started = 0;
 
-        public LongPollingLoop(BayeuxClient client, IEnumerable<TimeSpan> reconnectDelays)
+        public LongPollingLoop(
+            BayeuxClient client, // TODO: remove reference to client
+            IEnumerable<TimeSpan> reconnectDelays)
         {
             this.client = client;
 
@@ -42,8 +45,7 @@ namespace Genesys.Bayeux.Client
             if (alreadyStarted == 1)
                 throw new Exception("Already started.");
 
-            var response = await client.Handshake(cancellationToken);
-            ObtainAdvice(response);
+            await Handshake(cancellationToken);
 
             // A way to test the re-handshake with a real server is to put some delay here, between the first handshake response,
             // and the first try to connect. That will cause an "Invalid client id" response, with an advice of reconnect=handshake.
@@ -89,8 +91,7 @@ namespace Genesys.Bayeux.Client
                 {
                     rehandshakeOnFailure = false;
                     log.Debug($"Re-handshaking due to previously failed HTTP request.");
-                    var response = await client.Handshake(cancellationToken);
-                    ObtainAdvice(response);
+                    await Handshake(cancellationToken);
                 }
                 else switch (advice.reconnect)
                 {
@@ -108,24 +109,19 @@ namespace Genesys.Bayeux.Client
                     // [{"advice":{"interval":0,"reconnect":"handshake"},"channel":"/meta/connect","error":"402::Unknown client","successful":false}]
 
                     case "handshake":
-                        {
-                            log.Debug($"Re-handshaking after {advice.interval} ms on server request.");
-                            await Task.Delay(advice.interval);
-                            var response = await client.Handshake(cancellationToken);
-                            ObtainAdvice(response);
-                        }
+                        log.Debug($"Re-handshaking after {advice.interval} ms on server request.");
+                        await Task.Delay(advice.interval);
+                        await Handshake(cancellationToken);
                         break;
 
                     case "retry":
                     default:
-                        {
-                            if (advice.interval > 0)
-                                log.Debug($"Re-connecting after {advice.interval} ms on server request.");
+                        if (advice.interval > 0)
+                            log.Debug($"Re-connecting after {advice.interval} ms on server request.");
 
-                            await Task.Delay(advice.interval);
-                            var response = await client.currentConnection.Connect(cancellationToken);
-                            ObtainAdvice(response);
-                        }
+                        await Task.Delay(advice.interval);
+                        var connectResponse = await currentConnection.Connect(cancellationToken);
+                        ObtainAdvice(connectResponse);
                         break;
                 }
             }
@@ -148,6 +144,25 @@ namespace Genesys.Bayeux.Client
 
             if (resetReconnectDelayProvider)
                 reconnectDelaysEnumerator = reconnectDelays.GetEnumerator();
+        }
+
+        async Task Handshake(CancellationToken cancellationToken)
+        {
+            client.OnConnectionStateChanged(ConnectionState.Connecting);
+
+            var response = await client.Request(
+                new
+                {
+                    channel = "/meta/handshake",
+                    version = "1.0",
+                    supportedConnectionTypes = new[] { "long-polling" },
+                },
+                cancellationToken);
+
+            currentConnection = new BayeuxConnection((string)response["clientId"], client);
+            client.SetNewConnection(currentConnection);
+            client.OnConnectionStateChanged(ConnectionState.Connected);
+            ObtainAdvice(response);
         }
 
         void ObtainAdvice(JObject response)
