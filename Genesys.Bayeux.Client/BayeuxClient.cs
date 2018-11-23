@@ -58,11 +58,11 @@ namespace Genesys.Bayeux.Client
         readonly string url;
         readonly HttpPoster httpPoster;
         readonly TaskScheduler eventTaskScheduler;
+        readonly Subscriber subscriber;
 
         readonly CancellationTokenSource pollCancel = new CancellationTokenSource();
         volatile BayeuxConnection currentConnection;
         volatile BayeuxAdvice lastAdvice = new BayeuxAdvice();
-        readonly ChannelList subscribedChannels = new ChannelList();
 
         readonly IEnumerable<TimeSpan> reconnectDelays;
         IEnumerator<TimeSpan> reconnectDelaysEnumerator;
@@ -104,7 +104,9 @@ namespace Genesys.Bayeux.Client
 
             reconnectDelaysEnumerator = this.reconnectDelays.GetEnumerator();
 
-            this.eventTaskScheduler = ChooseTaskScheduler(eventTaskScheduler);
+            this.eventTaskScheduler = ChooseEventTaskScheduler(eventTaskScheduler);
+
+            this.subscriber = new Subscriber(this);
         }
 
         public BayeuxClient(
@@ -116,7 +118,7 @@ namespace Genesys.Bayeux.Client
         {
         }
 
-        static TaskScheduler ChooseTaskScheduler(TaskScheduler eventTaskScheduler)
+        static TaskScheduler ChooseEventTaskScheduler(TaskScheduler eventTaskScheduler)
         {
             if (eventTaskScheduler != null)
                 return eventTaskScheduler;
@@ -145,7 +147,7 @@ namespace Genesys.Bayeux.Client
             if (alreadyStarted == 1)
                 throw new Exception("Already started.");
 
-            currentConnection = await Handshake(cancellationToken);
+            await Handshake(cancellationToken);
 
             // A way to test the re-handshake with a real server is to put some delay here, between the first handshake response,
             // and the first try to connect. That will cause an "Invalid client id" response, with an advice of reconnect=handshake.
@@ -229,7 +231,7 @@ namespace Genesys.Bayeux.Client
                 {
                     rehandshakeOnFailure = false;
                     log.Debug($"Re-handshaking due to previously failed HTTP request.");
-                    currentConnection = await Handshake(cancellationToken);
+                    await Handshake(cancellationToken);
                 }
                 else switch (advice.reconnect)
                 {
@@ -249,7 +251,7 @@ namespace Genesys.Bayeux.Client
                     case "handshake":
                         log.Debug($"Re-handshaking after {advice.interval} ms on server request.");
                         await Task.Delay(advice.interval);
-                        currentConnection = await Handshake(cancellationToken);
+                        await Handshake(cancellationToken);
                         break;
 
                     case "retry":
@@ -311,12 +313,12 @@ namespace Genesys.Bayeux.Client
         {
             var oldConnectionState = Interlocked.Exchange(ref currentConnectionState, (int) state);
 
-            if (oldConnectionState != (int) state)
+            if (oldConnectionState != (int)state)
                 RunInEventTaskScheduler(() =>
                     ConnectionStateChanged?.Invoke(this, new ConnectionStateChangedArgs(state)));
         }   
         
-        async Task<BayeuxConnection> Handshake(CancellationToken cancellationToken)
+        async Task Handshake(CancellationToken cancellationToken)
         {
             OnConnectionStateChanged(ConnectionState.Connecting);
 
@@ -329,14 +331,9 @@ namespace Genesys.Bayeux.Client
                 },
                 cancellationToken);
 
+            currentConnection = new BayeuxConnection(response.clientId, this);
+            subscriber.OnConnected();
             OnConnectionStateChanged(ConnectionState.Connected);
-
-            var resubscribeChannels = subscribedChannels.Copy();
-
-            if (resubscribeChannels.Count != 0)
-                _ = TrySubscribe(resubscribeChannels);
-
-            return new BayeuxConnection(response.clientId, this);
         }
 
         // On defining .NET events
@@ -368,43 +365,6 @@ namespace Genesys.Bayeux.Client
         protected virtual void OnEventReceived(EventReceivedArgs args)
             => EventReceived?.Invoke(this, args);
 
-        class ChannelList
-        {
-            readonly List<string> items;
-            readonly object syncRoot;
-
-            public ChannelList()
-            {
-                items = new List<string>();
-                syncRoot = ((ICollection)items).SyncRoot;
-            }
-
-            public void Add(IEnumerable<string> channels)
-            {
-                lock (syncRoot)
-                {
-                    items.AddRange(channels);
-                }
-            }
-
-            public void Remove(IEnumerable<string> channels)
-            {
-                lock (syncRoot)
-                {
-                    foreach (var channel in channels)
-                        items.Remove(channel);
-                }
-            }
-
-            public List<string> Copy()
-            {
-                lock (syncRoot)
-                {
-                    return new List<string>(items);
-                }
-            }
-        }
-
         /// <summary>
         /// Adds a subscription. Subscribes immediately if this BayeuxClient is connected.
         /// This is equivalent to <see cref="Subscribe(IEnumerable{string}, CancellationToken)"/>, but does not throw an exception when not currently connected.
@@ -428,11 +388,11 @@ namespace Genesys.Bayeux.Client
         /// <exception cref="InvalidOperationException">If the Bayeux connection is not currently connected.</exception>
         public Task Subscribe(IEnumerable<string> channels, CancellationToken cancellationToken = default(CancellationToken))
         {
-            subscribedChannels.Add(channels);
+            subscriber.AddSubscription(channels);
             return TrySubscribe(channels, cancellationToken);
         }
 
-        Task TrySubscribe(IEnumerable<string> channels, CancellationToken cancellationToken = default(CancellationToken)) =>
+        internal Task TrySubscribe(IEnumerable<string> channels, CancellationToken cancellationToken = default(CancellationToken)) =>
             TrySubscriptionOperation("/meta/subscribe", channels, cancellationToken);
 
         /// <exception cref="InvalidOperationException">If the Bayeux connection is not currently connected.</exception>
@@ -442,7 +402,7 @@ namespace Genesys.Bayeux.Client
         /// <exception cref="InvalidOperationException">If the Bayeux connection is not currently connected.</exception>
         public Task Unsubscribe(IEnumerable<string> channels, CancellationToken cancellationToken = default(CancellationToken))
         {
-            subscribedChannels.Remove(channels);
+            subscriber.RemoveSubscription(channels);
             return TrySubscriptionOperation("/meta/unsubscribe", channels, cancellationToken);
         }
 
