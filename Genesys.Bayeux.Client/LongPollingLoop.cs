@@ -1,4 +1,5 @@
 ﻿using Genesys.Bayeux.Client.Logging;
+using Genesys.Bayeux.Client.Util;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -24,8 +25,7 @@ namespace Genesys.Bayeux.Client
         IEnumerator<TimeSpan> reconnectDelaysEnumerator;
         TimeSpan currentReconnectDelay;
         bool rehandshakeOnFailure = false;
-
-        int started = 0;
+        
 
         public LongPollingLoop(
             BayeuxClient client, // TODO: remove reference to client
@@ -39,10 +39,10 @@ namespace Genesys.Bayeux.Client
             reconnectDelaysEnumerator = this.reconnectDelays.GetEnumerator();
         }
 
+        readonly BooleanLatch startLatch = new BooleanLatch();
         public async Task Start(CancellationToken cancellationToken)
         {
-            var alreadyStarted = Interlocked.Exchange(ref started, 1);
-            if (alreadyStarted == 1)
+            if (startLatch.AlreadyRun())
                 throw new Exception("Already started.");
 
             await Handshake(cancellationToken);
@@ -51,15 +51,15 @@ namespace Genesys.Bayeux.Client
             // and the first try to connect. That will cause an "Invalid client id" response, with an advice of reconnect=handshake.
             // This can also be tested with a fake server in unit tests.
 
-            LoopPolling(pollCancel.Token);
+            LoopPolling();
         }
 
-        async void LoopPolling(CancellationToken cancellationToken)
+        async void LoopPolling()
         {
             try
             {
                 while (!pollCancel.IsCancellationRequested)
-                    await Poll(lastAdvice, pollCancel.Token);
+                    await Poll();
 
                 client.OnConnectionStateChanged(ConnectionState.Disconnected);
             }
@@ -81,7 +81,7 @@ namespace Genesys.Bayeux.Client
             pollCancel.Cancel();
         }
 
-        async Task Poll(BayeuxAdvice advice, CancellationToken cancellationToken)
+        async Task Poll()
         {
             var resetReconnectDelayProvider = true;
 
@@ -91,9 +91,9 @@ namespace Genesys.Bayeux.Client
                 {
                     rehandshakeOnFailure = false;
                     log.Debug($"Re-handshaking due to previously failed HTTP request.");
-                    await Handshake(cancellationToken);
+                    await Handshake(pollCancel.Token);
                 }
-                else switch (advice.reconnect)
+                else switch (lastAdvice.reconnect)
                 {
                     case "none":
                         log.Debug("Long-polling stopped on server request.");
@@ -109,19 +109,18 @@ namespace Genesys.Bayeux.Client
                     // [{"advice":{"interval":0,"reconnect":"handshake"},"channel":"/meta/connect","error":"402::Unknown client","successful":false}]
 
                     case "handshake":
-                        log.Debug($"Re-handshaking after {advice.interval} ms on server request.");
-                        await Task.Delay(advice.interval);
-                        await Handshake(cancellationToken);
+                        log.Debug($"Re-handshaking after {lastAdvice.interval} ms on server request.");
+                        await Task.Delay(lastAdvice.interval);
+                        await Handshake(pollCancel.Token);
                         break;
 
                     case "retry":
                     default:
-                        if (advice.interval > 0)
-                            log.Debug($"Re-connecting after {advice.interval} ms on server request.");
+                        if (lastAdvice.interval > 0)
+                            log.Debug($"Re-connecting after {lastAdvice.interval} ms on server request.");
 
-                        await Task.Delay(advice.interval);
-                        var connectResponse = await currentConnection.Connect(cancellationToken);
-                        ObtainAdvice(connectResponse);
+                        await Task.Delay(lastAdvice.interval);
+                        await Connect(pollCancel.Token);
                         break;
                 }
             }
@@ -164,6 +163,13 @@ namespace Genesys.Bayeux.Client
             client.OnConnectionStateChanged(ConnectionState.Connected);
             ObtainAdvice(response);
         }
+
+        async Task Connect(CancellationToken cancellationToken)
+        {
+            var connectResponse = await currentConnection.Connect(cancellationToken);
+            ObtainAdvice(connectResponse);
+        }
+
 
         void ObtainAdvice(JObject response)
         {
