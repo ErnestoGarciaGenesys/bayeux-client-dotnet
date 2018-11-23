@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 using static Genesys.Bayeux.Client.BayeuxClient;
 
 namespace Genesys.Bayeux.Client
@@ -27,7 +28,7 @@ namespace Genesys.Bayeux.Client
             var resubscribeChannels = subscribedChannels.Copy();
 
             if (resubscribeChannels.Count != 0)
-                _ = client.TrySubscribe(resubscribeChannels);
+                _ = client.RequestSubscribe(resubscribeChannels, CancellationToken.None, throwIfNotConnected: false);
         }
 
         class ChannelList

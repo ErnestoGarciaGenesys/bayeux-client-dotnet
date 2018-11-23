@@ -49,19 +49,26 @@ namespace Genesys.Bayeux.Client
                 cancellationToken);
         }
 
-        public Task DoSubscriptionOperation(
-            string metaChannel, 
-            IEnumerable<string> channels, 
+        public Task DoSubscription(
+            IEnumerable<string> channelsToSubscribe, 
+            IEnumerable<string> channelsToUnsubscribe, 
             CancellationToken cancellationToken)
         {
             return client.Request(
-                channels.Select(channel =>
+                channelsToSubscribe.Select(channel =>
                     new
                     {
                         clientId,
-                        channel = metaChannel,
+                        channel = "/meta/subscribe",
                         subscription = channel,
-                    }),
+                    })
+                    .Concat(channelsToUnsubscribe.Select(channel =>
+                    new
+                    {
+                        clientId,
+                        channel = "/meta/unsubscribe",
+                        subscription = channel,
+                    })),
                 cancellationToken);
         }
     }

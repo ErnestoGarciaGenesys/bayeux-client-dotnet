@@ -31,7 +31,7 @@ namespace Tests
 
         [TestMethod]
         [ExpectedException(typeof(BayeuxProtocolException))]
-        public async Task Server_responds_with_no_channel()
+        public async Task Server_response_without_channel()
         {
             var mock = new Mock<HttpMessageHandler>();
             var httpClient = new HttpClient(mock.Object);
