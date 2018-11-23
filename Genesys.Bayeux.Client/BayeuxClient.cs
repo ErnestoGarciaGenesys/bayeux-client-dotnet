@@ -44,7 +44,7 @@ namespace Genesys.Bayeux.Client
     public class BayeuxClient : IDisposable
     {
         // Don't use string formatting for logging, as it is not supported by the internal TraceSource implementation.
-        static readonly ILog log;
+        internal static readonly ILog log;
 
         static BayeuxClient()
         {
@@ -59,15 +59,9 @@ namespace Genesys.Bayeux.Client
         readonly HttpPoster httpPoster;
         readonly TaskScheduler eventTaskScheduler;
         readonly Subscriber subscriber;
+        readonly LongPollingLoop longPollingLoop;
 
-        readonly CancellationTokenSource pollCancel = new CancellationTokenSource();
-        volatile BayeuxConnection currentConnection;
-        volatile BayeuxAdvice lastAdvice = new BayeuxAdvice();
-
-        readonly IEnumerable<TimeSpan> reconnectDelays;
-        IEnumerator<TimeSpan> reconnectDelaysEnumerator;
-        TimeSpan currentReconnectDelay;
-        bool rehandshakeOnFailure = false;
+        internal volatile BayeuxConnection currentConnection;
 
 
         /// <param name="httpPoster">
@@ -98,14 +92,8 @@ namespace Genesys.Bayeux.Client
         {
             this.httpPoster = httpPoster;
             this.url = url;
-
-            this.reconnectDelays = reconnectDelays ??
-                new List<TimeSpan> { TimeSpan.Zero, TimeSpan.FromSeconds(5) };
-
-            reconnectDelaysEnumerator = this.reconnectDelays.GetEnumerator();
-
             this.eventTaskScheduler = ChooseEventTaskScheduler(eventTaskScheduler);
-
+            this.longPollingLoop = new LongPollingLoop(this, reconnectDelays);
             this.subscriber = new Subscriber(this);
         }
 
@@ -135,53 +123,15 @@ namespace Genesys.Bayeux.Client
             }
         }
 
-        int started = 0;
-
         /// <summary>
         /// Does the Bayeux handshake, and starts long-polling.
         /// Handshake does not support re-negotiation; it fails at first unsuccessful response.
         /// </summary>
-        public async Task Start(CancellationToken cancellationToken = default(CancellationToken))
-        {
-            var alreadyStarted = Interlocked.Exchange(ref started, 1);
-            if (alreadyStarted == 1)
-                throw new Exception("Already started.");
+        public Task Start(CancellationToken cancellationToken = default(CancellationToken)) =>
+            longPollingLoop.Start(cancellationToken);
 
-            await Handshake(cancellationToken);
-
-            // A way to test the re-handshake with a real server is to put some delay here, between the first handshake response,
-            // and the first try to connect. That will cause an "Invalid client id" response, with an advice of reconnect=handshake.
-            // This can also be tested with a fake server in unit tests.
-
-            LoopPolling(pollCancel.Token);
-        }
-
-        async void LoopPolling(CancellationToken cancellationToken)
-        {
-            try
-            {
-                while (!pollCancel.IsCancellationRequested)
-                    await Poll(lastAdvice, pollCancel.Token);
-
-                OnConnectionStateChanged(ConnectionState.Disconnected);
-            }
-            catch (TaskCanceledException)
-            {
-                OnConnectionStateChanged(ConnectionState.Disconnected);
-                log.Info("Long-polling cancelled.");
-            }
-            catch (Exception e)
-            {
-                log.ErrorException("Long-polling stopped on unexpected exception.", e);
-                OnConnectionStateChanged(ConnectionState.DisconnectedOnError);
-                throw; // unobserved exception
-            }
-        }
-
-        void StopLongPolling()
-        {
-            pollCancel.Cancel();
-        }
+        void StopLongPolling() =>
+            longPollingLoop.Stop();
 
         public async Task Stop(CancellationToken cancellationToken = default(CancellationToken))
         {
@@ -209,80 +159,6 @@ namespace Genesys.Bayeux.Client
         ~BayeuxClient()
         {
             Dispose(false);
-        }
-
-#pragma warning disable 0649 // "Field is never assigned to". These fields will be assigned by JSON deserialization
-
-        class BayeuxAdvice
-        {
-            public string reconnect;
-            public int interval = 0;
-        }
-
-#pragma warning restore 0649
-
-        async Task Poll(BayeuxAdvice advice, CancellationToken cancellationToken)
-        {
-            var resetReconnectDelayProvider = true;
-
-            try
-            {
-                if (rehandshakeOnFailure)
-                {
-                    rehandshakeOnFailure = false;
-                    log.Debug($"Re-handshaking due to previously failed HTTP request.");
-                    await Handshake(cancellationToken);
-                }
-                else switch (advice.reconnect)
-                {
-                    case "none":
-                        log.Debug("Long-polling stopped on server request.");
-                        StopLongPolling();
-                        break;
-
-                    // https://docs.cometd.org/current/reference/#_the_code_long_polling_code_response_messages
-                    // interval: the number of milliseconds the client SHOULD wait before issuing another long poll request
-
-                    // usual sample advice:
-                    // {"interval":0,"timeout":20000,"reconnect":"retry"}
-                    // another sample advice, when too much time without polling:
-                    // [{"advice":{"interval":0,"reconnect":"handshake"},"channel":"/meta/connect","error":"402::Unknown client","successful":false}]
-
-                    case "handshake":
-                        log.Debug($"Re-handshaking after {advice.interval} ms on server request.");
-                        await Task.Delay(advice.interval);
-                        await Handshake(cancellationToken);
-                        break;
-
-                    case "retry":
-                    default:
-                        if (advice.interval > 0)
-                            log.Debug($"Re-connecting after {advice.interval} ms on server request.");
-
-                        await Task.Delay(advice.interval);
-                        await currentConnection.Connect(cancellationToken);
-                        break;
-                }
-            }
-            catch (HttpRequestException e)
-            {
-                OnConnectionStateChanged(ConnectionState.Connecting);
-
-                rehandshakeOnFailure = true;
-                resetReconnectDelayProvider = false;
-                if (reconnectDelaysEnumerator.MoveNext())
-                    currentReconnectDelay = reconnectDelaysEnumerator.Current;
-                log.ErrorException($"HTTP request failed. Rehandshaking after {currentReconnectDelay}", e);
-                await Task.Delay(currentReconnectDelay);
-            }
-            catch (BayeuxRequestException e)
-            {
-                OnConnectionStateChanged(ConnectionState.Connecting);
-                log.Error($"Bayeux request failed with error: {e.BayeuxError}");
-            }
-
-            if (resetReconnectDelayProvider)
-                reconnectDelaysEnumerator = reconnectDelays.GetEnumerator();
         }
 
         public enum ConnectionState
@@ -318,7 +194,7 @@ namespace Genesys.Bayeux.Client
                     ConnectionStateChanged?.Invoke(this, new ConnectionStateChangedArgs(state)));
         }   
         
-        async Task Handshake(CancellationToken cancellationToken)
+        internal async Task<JObject> Handshake(CancellationToken cancellationToken)
         {
             OnConnectionStateChanged(ConnectionState.Connecting);
 
@@ -331,9 +207,10 @@ namespace Genesys.Bayeux.Client
                 },
                 cancellationToken);
 
-            currentConnection = new BayeuxConnection(response.clientId, this);
+            currentConnection = new BayeuxConnection((string)response["clientId"], this);
             subscriber.OnConnected();
             OnConnectionStateChanged(ConnectionState.Connected);
+            return response;
         }
 
         // On defining .NET events
@@ -424,22 +301,19 @@ namespace Genesys.Bayeux.Client
         }
 
 #pragma warning disable 0649 // "Field is never assigned to". These fields will be assigned by JSON deserialization
-
-        internal class BayeuxResponse
+        class BayeuxResponse
         {
             public bool successful;
             public string error;
-            public string clientId;
         }
-
 #pragma warning restore 0649
 
-        internal Task<BayeuxResponse> Request(object request, CancellationToken cancellationToken = default(CancellationToken)) =>
+        internal Task<JObject> Request(object request, CancellationToken cancellationToken = default(CancellationToken)) =>
             // https://docs.cometd.org/current/reference/#_messages
             // All Bayeux messages SHOULD be encapsulated in a JSON encoded array so that multiple messages may be transported together
             Request(new[] { request }, cancellationToken);
 
-        async Task<BayeuxResponse> Request(IEnumerable<object> request, CancellationToken cancellationToken = default(CancellationToken))
+        async Task<JObject> Request(IEnumerable<object> request, CancellationToken cancellationToken = default(CancellationToken))
         {
             var httpResponse = await Post(request, cancellationToken);
             // As a stream it could have better performance, but logging is easier with strings.
@@ -476,13 +350,6 @@ namespace Genesys.Bayeux.Client
                 {
                     events.Add(message);
                 }
-
-                // https://docs.cometd.org/current/reference/#_bayeux_advice
-                // any Bayeux response message may contain an advice field.
-                // Advice received always supersedes any previous received advice.
-                var adviceToken = message["advice"];
-                if (adviceToken != null)
-                    lastAdvice = adviceToken.ToObject<BayeuxAdvice>();
             }
 
             RunInEventTaskScheduler(() =>
@@ -496,12 +363,10 @@ namespace Genesys.Bayeux.Client
             if (!response.successful)
                 throw new BayeuxRequestException(response.error);
 
-            return response;
+            return responseObj;
         }
 
-        void RunInEventTaskScheduler(Action action)
-        {
-            var _ = Task.Factory.StartNew(action, CancellationToken.None, TaskCreationOptions.DenyChildAttach, eventTaskScheduler);
-        }
+        void RunInEventTaskScheduler(Action action) =>
+            Task.Factory.StartNew(action, CancellationToken.None, TaskCreationOptions.DenyChildAttach, eventTaskScheduler);
     }
 }

@@ -1,9 +1,11 @@
-﻿using System;
+﻿using Newtonsoft.Json.Linq;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using static Genesys.Bayeux.Client.BayeuxClient;
 
 namespace Genesys.Bayeux.Client
 {
@@ -20,9 +22,9 @@ namespace Genesys.Bayeux.Client
             this.client = client;
         }
         
-        public async Task Connect(CancellationToken cancellationToken)
+        public async Task<JObject> Connect(CancellationToken cancellationToken)
         {
-            await client.Request(
+            var response = await client.Request(
                 new
                 {
                     clientId,
@@ -32,6 +34,8 @@ namespace Genesys.Bayeux.Client
                 cancellationToken);
 
             client.OnConnectionStateChanged(BayeuxClient.ConnectionState.Connected);
+
+            return response;
         }
 
         public Task Disconnect(CancellationToken cancellationToken)
