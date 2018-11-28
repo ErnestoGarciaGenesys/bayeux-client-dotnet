@@ -54,7 +54,7 @@ namespace Genesys.Bayeux.Client
             IEnumerable<string> channelsToUnsubscribe, 
             CancellationToken cancellationToken)
         {
-            return client.Request(
+            return client.RequestMany(
                 channelsToSubscribe.Select(channel =>
                     new
                     {

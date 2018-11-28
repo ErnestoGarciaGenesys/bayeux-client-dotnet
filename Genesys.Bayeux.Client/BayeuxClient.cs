@@ -4,6 +4,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -93,6 +94,8 @@ namespace Genesys.Bayeux.Client
                 return new ConcurrentExclusiveSchedulerPair().ExclusiveScheduler;
             }
         }
+
+        // TODO: add a new method to Start without failing when first connection has failed.
 
         /// <summary>
         /// Does the Bayeux handshake, and starts long-polling.
@@ -278,13 +281,19 @@ namespace Genesys.Bayeux.Client
             public bool successful;
             public string error;
         }
-        #pragma warning restore 0649
+#pragma warning restore 0649
 
-        internal async Task<JObject> Request(object request, CancellationToken cancellationToken)
+        internal Task<JObject> Request(object request, CancellationToken cancellationToken)
+        {
+            Trace.Assert(!(request is System.Collections.IEnumerable), "Use method RequestMany");
+            return RequestMany(new[] { request }, cancellationToken);
+        }
+
+        internal async Task<JObject> RequestMany(IEnumerable<object> requests, CancellationToken cancellationToken)
         {
             // https://docs.cometd.org/current/reference/#_messages
             // All Bayeux messages SHOULD be encapsulated in a JSON encoded array so that multiple messages may be transported together
-            var responseObj = await transport.Request(new[] { request }, cancellationToken);
+            var responseObj = await transport.Request(requests, cancellationToken);
 
             var response = responseObj.ToObject<BayeuxResponse>();
 

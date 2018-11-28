@@ -93,5 +93,11 @@ namespace Tests
                 throw;
             }
         }
+
+        [TestMethod]
+        public void Array_is_IEnumerable()
+        {
+            Assert.IsTrue(new object[0] is System.Collections.IEnumerable);
+        }
     }
 }

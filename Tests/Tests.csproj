@@ -78,6 +78,7 @@
     <Compile Include="DotNetChecks.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="JsonChecks.cs" />
+    <Compile Include="RealLocalTest.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
