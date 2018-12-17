@@ -13,9 +13,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using static Genesys.Bayeux.Client.Logging.LogProvider;
 
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Tests")]
+
 namespace Genesys.Bayeux.Client
 {
-    public class BayeuxClient : IDisposable
+    public class BayeuxClient : IDisposable, IContext
     {
         // Don't use string formatting for logging, as it is not supported by the internal TraceSource implementation.
         internal static readonly ILog log;
@@ -32,7 +34,7 @@ namespace Genesys.Bayeux.Client
         readonly HttpTransport transport;
         readonly TaskScheduler eventTaskScheduler;
         readonly Subscriber subscriber;
-        readonly LongPollingLoop longPollingLoop;
+        readonly ConnectLoop connectLoop;
 
         volatile BayeuxConnection currentConnection;
 
@@ -58,14 +60,17 @@ namespace Genesys.Bayeux.Client
         /// values passed here. The last element of the collection will be re-used indefinitely.
         /// </param>
         public BayeuxClient(
-            HttpPoster httpPoster,
+            IHttpPoster httpPoster,
             string url,
             IEnumerable<TimeSpan> reconnectDelays = null,
             TaskScheduler eventTaskScheduler = null)
         {
             this.transport = new HttpTransport(httpPoster, url, PublishEvents);
             this.eventTaskScheduler = ChooseEventTaskScheduler(eventTaskScheduler);
-            this.longPollingLoop = new LongPollingLoop(this, reconnectDelays);
+            this.connectLoop = new ConnectLoop(
+                "long-polling",
+                reconnectDelays,
+                this);
             this.subscriber = new Subscriber(this);
         }
 
@@ -111,10 +116,10 @@ namespace Genesys.Bayeux.Client
         /// Handshake does not support re-negotiation; it fails at first unsuccessful response.
         /// </summary>
         public Task Start(CancellationToken cancellationToken = default(CancellationToken)) =>
-            longPollingLoop.Start(cancellationToken);
+            connectLoop.Start(cancellationToken);
 
         void StopLongPolling() =>
-            longPollingLoop.Stop();
+            connectLoop.Stop();
 
         public async Task Stop(CancellationToken cancellationToken = default(CancellationToken))
         {
@@ -177,9 +182,9 @@ namespace Genesys.Bayeux.Client
                     ConnectionStateChanged?.Invoke(this, new ConnectionStateChangedArgs(state)));
         }
 
-        internal void SetNewConnection(BayeuxConnection currentConnection)
+        internal void SetNewConnection(BayeuxConnection newConnection)
         {
-            this.currentConnection = currentConnection;
+            currentConnection = newConnection;
             subscriber.OnConnected();
         }
 
@@ -321,5 +326,17 @@ namespace Genesys.Bayeux.Client
 
         void RunInEventTaskScheduler(Action action) =>
             Task.Factory.StartNew(action, CancellationToken.None, TaskCreationOptions.DenyChildAttach, eventTaskScheduler);
+
+        Task<JObject> IContext.Request(object request, CancellationToken cancellationToken)
+            => Request(request, cancellationToken);
+
+        Task<JObject> IContext.RequestMany(IEnumerable<object> requests, CancellationToken cancellationToken)
+            => RequestMany(requests, cancellationToken);
+
+        void IContext.SetConnectionState(ConnectionState newState)
+            => OnConnectionStateChanged(newState);
+
+        void IContext.SetConnection(BayeuxConnection newConnection)
+            => SetNewConnection(newConnection);
     }
 }

@@ -175,12 +175,12 @@ namespace Tests
             }
         }
 
-        public class WorkspaceApiEnsureAuthorizedHttpPoster : HttpPoster
+        public class WorkspaceApiEnsureAuthorizedHttpPoster : IHttpPoster
         {
-            readonly HttpPoster innerPoster;
+            readonly IHttpPoster innerPoster;
             readonly string baseUrl;
 
-            public WorkspaceApiEnsureAuthorizedHttpPoster(HttpPoster innerPoster, String baseUrl)
+            public WorkspaceApiEnsureAuthorizedHttpPoster(IHttpPoster innerPoster, String baseUrl)
             {
                 this.innerPoster = innerPoster;
                 this.baseUrl = baseUrl;

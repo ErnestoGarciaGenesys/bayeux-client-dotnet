@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using Genesys.Bayeux.Client;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace Tests
 {
@@ -41,6 +42,38 @@ namespace Tests
             }
         }
 
+        class Context : IContext
+        {
+            readonly WebSocketTransport wsTransport;
+
+            public Context(WebSocketTransport wsTransport)
+            {
+                this.wsTransport = wsTransport;
+            }
+
+            public Task<JObject> Request(object request, CancellationToken cancellationToken)
+            {
+                return wsTransport.Request(new[] { request }, cancellationToken);
+            }
+
+            public Task<JObject> RequestMany(IEnumerable<object> requests, CancellationToken cancellationToken)
+            {
+                return wsTransport.Request(requests, cancellationToken);
+            }
+
+            public void SetConnection(BayeuxConnection newConnection)
+            {
+                Debug.WriteLine($"New connection: {newConnection}");
+
+                newConnection.DoSubscription(new[] { "/test" }, new string[] { }, CancellationToken.None);
+            }
+
+            public void SetConnectionState(BayeuxClient.ConnectionState newState)
+            {
+                Debug.WriteLine($"New connection state: {newState}");
+            }
+        }
+
         [TestMethod]
         public async Task Run_for_a_while_using_WebSocket()
         {
@@ -54,47 +87,8 @@ namespace Tests
 
                 await transport.InitAsync(CancellationToken.None);
 
-                var response = await transport.Request(new[]
-                {
-                    new
-                    {
-                        channel = "/meta/handshake",
-                        version = "1.0",
-                        supportedConnectionTypes = new[] { "websocket" },
-                    },
-                }, CancellationToken.None);
-
-                var currentConnection = (string)response["clientId"];
-
-                var subscribeResponse = await transport.Request(new[]
-                {
-                    new
-                    {
-                        clientId = currentConnection,
-                        channel = "/meta/subscribe",
-                        subscription = "/test",
-                    },
-                }, CancellationToken.None);
-
-                var connectResponse = await transport.Request(new[]
-                {
-                    new
-                    {
-                        clientId = currentConnection,
-                        channel = "/meta/connect",
-                        connectionType = "websocket",
-                    },
-                }, CancellationToken.None);
-
-                var connectResponse2 = await transport.Request(new[]
-                {
-                    new
-                    {
-                        clientId = currentConnection,
-                        channel = "/meta/connect",
-                        connectionType = "websocket",
-                    },
-                }, CancellationToken.None);
+                var connectLoop = new ConnectLoop("websocket", null, new Context(transport));
+                await connectLoop.Start(CancellationToken.None);
 
                 await Task.Delay(TimeSpan.FromSeconds(60));
             }

@@ -12,19 +12,19 @@ namespace Genesys.Bayeux.Client
     class BayeuxConnection
     {
         readonly string clientId;
-        readonly BayeuxClient client; // TODO: remove this field
+        readonly IContext context;
 
         public BayeuxConnection(
             string clientId,
-            BayeuxClient client)
+            IContext context)
         {
             this.clientId = clientId;
-            this.client = client;
+            this.context = context;
         }
         
         public async Task<JObject> Connect(CancellationToken cancellationToken)
         {
-            var response = await client.Request(
+            var response = await context.Request(
                 new
                 {
                     clientId,
@@ -33,14 +33,14 @@ namespace Genesys.Bayeux.Client
                 },
                 cancellationToken);
 
-            client.OnConnectionStateChanged(BayeuxClient.ConnectionState.Connected);
+            context.SetConnectionState(BayeuxClient.ConnectionState.Connected);
 
             return response;
         }
 
         public Task Disconnect(CancellationToken cancellationToken)
         {
-            return client.Request(
+            return context.Request(
                 new
                 {
                     clientId,
@@ -54,7 +54,7 @@ namespace Genesys.Bayeux.Client
             IEnumerable<string> channelsToUnsubscribe, 
             CancellationToken cancellationToken)
         {
-            return client.RequestMany(
+            return context.RequestMany(
                 channelsToSubscribe.Select(channel =>
                     new
                     {

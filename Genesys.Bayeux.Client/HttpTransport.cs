@@ -14,12 +14,12 @@ namespace Genesys.Bayeux.Client
     /// Abstraction for any HTTP client implementation.
     /// Also allows implementation of retry policies, useful for servers that may occasionally need a session refresh, for example. This is in general not supported by HttpClient, as for some versions SendAsync disposes the content of HttpRequestMessage. This means that, for a failed SendAsync call, it can't be retried, as the HttpRequestMessage can't be reused.
     /// </summary>
-    public interface HttpPoster
+    public interface IHttpPoster
     {
         Task<HttpResponseMessage> PostAsync(string requestUri, string jsonContent, CancellationToken cancellationToken);
     }
 
-    public class HttpClientHttpPoster : HttpPoster
+    public class HttpClientHttpPoster : IHttpPoster
     {
         readonly HttpClient httpClient;
 
@@ -41,12 +41,12 @@ namespace Genesys.Bayeux.Client
     {
         static readonly ILog log = BayeuxClient.log;
 
-        readonly HttpPoster httpPoster;
+        readonly IHttpPoster httpPoster;
         readonly string url;
         readonly Action<IEnumerable<JObject>> eventPublisher;
 
         public HttpTransport(
-            HttpPoster httpPoster, 
+            IHttpPoster httpPoster, 
             string url,
             Action<IEnumerable<JObject>> eventPublisher)
         {

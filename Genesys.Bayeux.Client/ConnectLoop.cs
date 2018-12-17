@@ -11,28 +11,41 @@ using static Genesys.Bayeux.Client.BayeuxClient;
 
 namespace Genesys.Bayeux.Client
 {
-    class LongPollingLoop
+    internal interface IContext
+    {
+        Task<JObject> Request(object request, CancellationToken cancellationToken);
+        Task<JObject> RequestMany(IEnumerable<object> requests, CancellationToken cancellationToken);
+        void SetConnectionState(ConnectionState newState);
+        void SetConnection(BayeuxConnection newConnection);
+    }
+
+    class ConnectLoop
     {
         static readonly ILog log = BayeuxClient.log;
 
-        readonly BayeuxClient client;
+        readonly string connectionType;
+        readonly ReconnectDelays reconnectDelays;
+        readonly IContext context;
+
         readonly CancellationTokenSource pollCancel = new CancellationTokenSource();
 
-        readonly ReconnectDelays reconnectDelays;
         BayeuxConnection currentConnection;
         BayeuxAdvice lastAdvice = new BayeuxAdvice();
         bool rehandshakeOnFailure = false;
 
 
-        public LongPollingLoop(
-            BayeuxClient client, // TODO: remove reference to client
-            IEnumerable<TimeSpan> reconnectDelays)
+        public ConnectLoop(
+            string connectionType,
+            IEnumerable<TimeSpan> reconnectDelays,
+            IContext context)
         {
-            this.client = client;
+            this.connectionType = connectionType;
             this.reconnectDelays = new ReconnectDelays(reconnectDelays);
+            this.context = context;
         }
 
         readonly BooleanLatch startLatch = new BooleanLatch();
+
         public async Task Start(CancellationToken cancellationToken)
         {
             if (startLatch.AlreadyRun())
@@ -54,17 +67,17 @@ namespace Genesys.Bayeux.Client
                 while (!pollCancel.IsCancellationRequested)
                     await Poll();
 
-                client.OnConnectionStateChanged(ConnectionState.Disconnected);
+                context.SetConnectionState(ConnectionState.Disconnected);
             }
             catch (TaskCanceledException)
             {
-                client.OnConnectionStateChanged(ConnectionState.Disconnected);
+                context.SetConnectionState(ConnectionState.Disconnected);
                 log.Info("Long-polling cancelled.");
             }
             catch (Exception e)
             {
                 log.ErrorException("Long-polling stopped on unexpected exception.", e);
-                client.OnConnectionStateChanged(ConnectionState.DisconnectedOnError);
+                context.SetConnectionState(ConnectionState.DisconnectedOnError);
                 throw; // unobserved exception
             }
         }
@@ -119,7 +132,7 @@ namespace Genesys.Bayeux.Client
             }
             catch (HttpRequestException e)
             {
-                client.OnConnectionStateChanged(ConnectionState.Connecting);
+                context.SetConnectionState(ConnectionState.Connecting);
                 rehandshakeOnFailure = true;
 
                 var reconnectDelay = reconnectDelays.GetNext();
@@ -128,27 +141,27 @@ namespace Genesys.Bayeux.Client
             }
             catch (BayeuxRequestException e)
             {
-                client.OnConnectionStateChanged(ConnectionState.Connecting);
+                context.SetConnectionState(ConnectionState.Connecting);
                 log.Error($"Bayeux request failed with error: {e.BayeuxError}");
             }
         }
 
         async Task Handshake(CancellationToken cancellationToken)
         {
-            client.OnConnectionStateChanged(ConnectionState.Connecting);
+            context.SetConnectionState(ConnectionState.Connecting);
 
-            var response = await client.Request(
+            var response = await context.Request(
                 new
                 {
                     channel = "/meta/handshake",
                     version = "1.0",
-                    supportedConnectionTypes = new[] { "long-polling" },
+                    supportedConnectionTypes = new[] { connectionType },
                 },
                 cancellationToken);
 
-            currentConnection = new BayeuxConnection((string)response["clientId"], client);
-            client.SetNewConnection(currentConnection);
-            client.OnConnectionStateChanged(ConnectionState.Connected);
+            currentConnection = new BayeuxConnection((string)response["clientId"], context);
+            context.SetConnection(currentConnection);
+            context.SetConnectionState(ConnectionState.Connected);
             ObtainAdvice(response);
         }
 
