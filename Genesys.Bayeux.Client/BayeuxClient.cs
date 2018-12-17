@@ -77,6 +77,15 @@ namespace Genesys.Bayeux.Client
             : this(new HttpClientHttpPoster(httpClient), url, reconnectDelays, eventTaskScheduler)
         {
         }
+        
+        // TODO: Modify all ctors for clear construction of a BayeuxClient. Possibly through static factory methods.
+        //public BayeuxClient(string url, TaskScheduler eventTaskScheduler = null, IEnumerable<TimeSpan> reconnectDelays = null)
+        //{
+        //    this.transport = new WebSocketTransport(url);
+        //    this.eventTaskScheduler = ChooseEventTaskScheduler(eventTaskScheduler);
+        //    this.longPollingLoop = new LongPollingLoop(this, reconnectDelays);
+        //    this.subscriber = new Subscriber(this);
+        //}
 
         static TaskScheduler ChooseEventTaskScheduler(TaskScheduler eventTaskScheduler)
         {
@@ -281,7 +290,7 @@ namespace Genesys.Bayeux.Client
             public bool successful;
             public string error;
         }
-#pragma warning restore 0649
+        #pragma warning restore 0649
 
         internal Task<JObject> Request(object request, CancellationToken cancellationToken)
         {

@@ -55,9 +55,9 @@ namespace Genesys.Bayeux.Client
             this.eventPublisher = eventPublisher;
         }
 
-        public async Task<JObject> Request(IEnumerable<object> request, CancellationToken cancellationToken)
+        public async Task<JObject> Request(IEnumerable<object> requests, CancellationToken cancellationToken)
         {
-            var messageStr = JsonConvert.SerializeObject(request);
+            var messageStr = JsonConvert.SerializeObject(requests);
             log.Debug($"Posting: {messageStr}");
             var httpResponse = await httpPoster.PostAsync(url, messageStr, cancellationToken);
 
@@ -87,6 +87,7 @@ namespace Genesys.Bayeux.Client
 
                 if (channel.StartsWith("/meta/"))
                 {
+                    // TODO: this is not good. Several responses can be obtained, if several requests are sent.
                     responseObj = message;
                 }
                 else
