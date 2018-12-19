@@ -13,118 +13,106 @@ using Newtonsoft.Json.Linq;
 
 namespace Genesys.Bayeux.Client
 {
-    // TODO: Make internal
-    public class WebSocketTransport
+    internal class WebSocketTransport : IDisposable
     {
         static readonly ILog log = BayeuxClient.log;
 
-        readonly string url;
-        readonly WebSocket webSocket;
+        readonly WebSocketChannel channel;
+        readonly TimeSpan responseTimeout;
         readonly Action<IEnumerable<JObject>> eventPublisher;
 
         readonly ConcurrentDictionary<string, Action<JObject>> pendingRequests = new ConcurrentDictionary<string, Action<JObject>>();
-
         long nextMessageId = 0;
 
-        public WebSocketTransport(WebSocket webSocket, string url, Action<IEnumerable<JObject>> eventPublisher)
+        public WebSocketTransport(WebSocket webSocket, string url, TimeSpan responseTimeout, Action<IEnumerable<JObject>> eventPublisher)
         {
-            this.url = url;
-            this.webSocket = webSocket;
+            channel = new WebSocketChannel(webSocket, url, OnMessageReceived);
+            this.responseTimeout = responseTimeout;
             this.eventPublisher = eventPublisher;
+        }
+
+        public void Dispose()
+        {
+            channel.Dispose();
         }
 
         public async Task InitAsync(CancellationToken cancellationToken)
         {
-            await webSocket.ConnectAsync(new Uri(url), cancellationToken);
-            StartReceivingLoop(webSocket, cancellationToken);
+            await channel.Start(cancellationToken);
         }
 
-        async void StartReceivingLoop(WebSocket webSocket, CancellationToken cancellationToken)
+        void OnMessageReceived(Stream stream)
         {
-            try
+            using (var reader = new StreamReader(stream, Encoding.UTF8))
             {
-                while (!cancellationToken.IsCancellationRequested)
-                {
-                    var responses = await ReceiveJsonMessage(webSocket, cancellationToken);
+                var received = JToken.ReadFrom(new JsonTextReader(reader));
 
-                    foreach (var response in responses)
+                log.Debug($"Received: {received}");
+
+                var responses = received is JObject ?
+                    new[] { (JObject)received } :
+                    ((JArray)received).Children().Cast<JObject>();
+
+                var events = new List<JObject>();
+                foreach (var response in responses)
+                {
+                    var messageId = (string)response["id"];
+                    if (messageId == null)
                     {
-                        var messageId = (string)response["id"];
-                        if (messageId == null)
-                        {
-                            eventPublisher(new[] { response });
-                        }
+                        events.Add(response);
+                    }
+                    else
+                    {
+                        var found = pendingRequests.TryRemove(messageId, out var action);
+
+                        if (found)
+                            action(response);
                         else
-                        {
-                            pendingRequests.TryRemove(messageId, out var action);
-                            action?.Invoke(response);
-                        }
+                            log.Error($"Request not found for received response with id '{messageId}'");
                     }
                 }
-            }
-            catch (Exception e)
-            {
-                log.FatalException("Exception thrown in WebSocket receiving loop", e);
+
+                if (events.Count > 0)
+                    eventPublisher(events);
             }
         }
 
         public async Task<JObject> Request(IEnumerable<object> requests, CancellationToken cancellationToken)
         {
-            var responseTasks = new List<Task<JObject>>();
+            var responseTasks = new List<TaskCompletionSource<JObject>>();
             var requestsJArray = JArray.FromObject(requests);
+            var messageIds = new List<string>();
             foreach (var request in requestsJArray)
             {
                 var messageId = Interlocked.Increment(ref nextMessageId).ToString();
                 request["id"] = messageId;
+                messageIds.Add(messageId);
 
                 var responseReceived = new TaskCompletionSource<JObject>();
                 pendingRequests.TryAdd(messageId, response => responseReceived.SetResult(response));
-                responseTasks.Add(responseReceived.Task);
+                responseTasks.Add(responseReceived);
             }
             
             var messageStr = JsonConvert.SerializeObject(requestsJArray);
             log.Debug($"Posting: {messageStr}");
-            await webSocket.SendAsync(
-                new ArraySegment<byte>(Encoding.UTF8.GetBytes(messageStr)),
-                WebSocketMessageType.Text,
-                true,
-                cancellationToken);
+            await channel.SendAsync(messageStr, cancellationToken);
 
-            //foreach (var response in responseTasks)
-            //{
+            var timeoutTask = Task.Delay(responseTimeout, cancellationToken);
+            Task completedTask = await Task.WhenAny(
+                Task.WhenAll(responseTasks.Select(t => t.Task)),
+                timeoutTask);
 
-            //}
+            foreach (var id in messageIds)
+                pendingRequests.TryRemove(id, out var _);
 
-            return await responseTasks.First();
-        }
-
-        public static async Task<IEnumerable<JObject>> ReceiveJsonMessage(WebSocket webSocket, CancellationToken cancellationToken)
-        {
-            var buffer = new ArraySegment<byte>(new byte[8192]);
-
-            using (var stream = new MemoryStream())
+            if (completedTask == timeoutTask)
             {
-                WebSocketReceiveResult result = null;
-                do
-                {
-                    result = await webSocket.ReceiveAsync(buffer, cancellationToken);
-                    stream.Write(buffer.Array, buffer.Offset, result.Count);
-                }
-                while (!result.EndOfMessage);
-
-                stream.Seek(0, SeekOrigin.Begin);
-
-                using (var reader = new StreamReader(stream, Encoding.UTF8))
-                {
-                    var received = JToken.ReadFrom(new JsonTextReader(reader));
-
-                    log.Debug($"Received: {received}");
-
-                    if (received is JObject)
-                        return new[] { (JObject)received };
-                    else
-                        return ((JArray)received).Children().Cast<JObject>();
-                }
+                cancellationToken.ThrowIfCancellationRequested();
+                throw new TimeoutException();
+            }
+            else
+            {
+                return responseTasks.First().Task.Result;
             }
         }
     }

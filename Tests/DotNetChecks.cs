@@ -99,5 +99,18 @@ namespace Tests
         {
             Assert.IsTrue(new object[0] is System.Collections.IEnumerable);
         }
+
+
+        [TestMethod]
+        public async Task Check_if_Task_WhenAny_is_canceled()
+        {
+            var cancellationSource = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+            Task completedTask = await Task.WhenAny(
+                Task.Delay(TimeSpan.FromSeconds(60)),
+                Task.Delay(TimeSpan.FromSeconds(30), cancellationSource.Token));
+            
+            Assert.IsTrue(completedTask.IsCanceled);
+        }
     }
 }

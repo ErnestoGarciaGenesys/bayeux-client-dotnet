@@ -158,7 +158,7 @@ namespace Tests
         {
             var httpClient = 
                 new WorkspaceApiEnsureAuthorizedHttpPoster(
-                    new HttpClientHttpPoster(await InitHttpClient()),
+                    new HttpClientHttpPost(await InitHttpClient()),
                     BaseURL);
 
             //var initResponse = await httpClient.PostAsync(
@@ -175,12 +175,12 @@ namespace Tests
             }
         }
 
-        public class WorkspaceApiEnsureAuthorizedHttpPoster : IHttpPoster
+        public class WorkspaceApiEnsureAuthorizedHttpPoster : IHttpPost
         {
-            readonly IHttpPoster innerPoster;
+            readonly IHttpPost innerPoster;
             readonly string baseUrl;
 
-            public WorkspaceApiEnsureAuthorizedHttpPoster(IHttpPoster innerPoster, String baseUrl)
+            public WorkspaceApiEnsureAuthorizedHttpPoster(IHttpPost innerPoster, String baseUrl)
             {
                 this.innerPoster = innerPoster;
                 this.baseUrl = baseUrl;

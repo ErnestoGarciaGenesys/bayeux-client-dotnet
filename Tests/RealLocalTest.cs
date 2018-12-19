@@ -77,20 +77,23 @@ namespace Tests
         [TestMethod]
         public async Task Run_for_a_while_using_WebSocket()
         {
-            using (var webSocket = SystemClientWebSocket.CreateClientWebSocket())
-            {
-                var transport = new WebSocketTransport(webSocket, "ws://localhost:8080/bayeux/",
-                    events =>
+            var webSocket = SystemClientWebSocket.CreateClientWebSocket();
+
+            using (var transport = new WebSocketTransport(webSocket, "ws://localhost:8080/bayeux/",
+                    responseTimeout: TimeSpan.FromSeconds(30),
+                    eventPublisher: events =>
                     {
                         Debug.WriteLine($"Events received: {events}");
-                    });
-
+                    }))
+            {
                 await transport.InitAsync(CancellationToken.None);
 
                 var connectLoop = new ConnectLoop("websocket", null, new Context(transport));
                 await connectLoop.Start(CancellationToken.None);
 
-                await Task.Delay(TimeSpan.FromSeconds(60));
+                await Task.Delay(TimeSpan.FromSeconds(25));
+
+                Debug.WriteLine("End");
             }
 
             //    var bayeuxClient = new BayeuxClient(url);
@@ -109,6 +112,15 @@ namespace Tests
             //{
             //    Thread.Sleep(TimeSpan.FromSeconds(60));
             //}
+        }
+
+        private class BayeuxClientConfiguration
+        {
+            public BayeuxClientConfiguration()
+            {
+            }
+
+            public object EventTaskScheduler { get; set; }
         }
     }
 }

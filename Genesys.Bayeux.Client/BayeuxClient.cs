@@ -30,7 +30,6 @@ namespace Genesys.Bayeux.Client
             log = LogProvider.GetLogger(typeof(BayeuxClient).Namespace);
         }
 
-
         readonly HttpTransport transport;
         readonly TaskScheduler eventTaskScheduler;
         readonly Subscriber subscriber;
@@ -39,7 +38,7 @@ namespace Genesys.Bayeux.Client
         volatile BayeuxConnection currentConnection;
 
 
-        /// <param name="httpPoster">
+        /// <param name="httpPost">
         /// An HTTP POST implementation. It should not do HTTP pipelining (rarely done for POSTs anyway).
         /// See https://docs.cometd.org/current/reference/#_two_connection_operation.
         /// </param>
@@ -60,12 +59,12 @@ namespace Genesys.Bayeux.Client
         /// values passed here. The last element of the collection will be re-used indefinitely.
         /// </param>
         public BayeuxClient(
-            IHttpPoster httpPoster,
+            IHttpPost httpPost,
             string url,
             IEnumerable<TimeSpan> reconnectDelays = null,
             TaskScheduler eventTaskScheduler = null)
         {
-            this.transport = new HttpTransport(httpPoster, url, PublishEvents);
+            this.transport = new HttpTransport(httpPost, url, PublishEvents);
             this.eventTaskScheduler = ChooseEventTaskScheduler(eventTaskScheduler);
             this.connectLoop = new ConnectLoop(
                 "long-polling",
@@ -79,7 +78,7 @@ namespace Genesys.Bayeux.Client
             string url, 
             IEnumerable<TimeSpan> reconnectDelays = null, 
             TaskScheduler eventTaskScheduler = null)
-            : this(new HttpClientHttpPoster(httpClient), url, reconnectDelays, eventTaskScheduler)
+            : this(new HttpClientHttpPost(httpClient), url, reconnectDelays, eventTaskScheduler)
         {
         }
         

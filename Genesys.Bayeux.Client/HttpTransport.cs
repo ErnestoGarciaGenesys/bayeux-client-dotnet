@@ -12,18 +12,18 @@ namespace Genesys.Bayeux.Client
 {
     /// <summary>
     /// Abstraction for any HTTP client implementation.
-    /// Also allows implementation of retry policies, useful for servers that may occasionally need a session refresh, for example. This is in general not supported by HttpClient, as for some versions SendAsync disposes the content of HttpRequestMessage. This means that, for a failed SendAsync call, it can't be retried, as the HttpRequestMessage can't be reused.
+    /// Enables the implementation of retry policies, useful for servers that may occasionally need a session refresh. Retries are general not supported by HttpClient, as, for some versions, SendAsync disposes the content of HttpRequestMessage. This means that a failed SendAsync call can't be retried, as the HttpRequestMessage can't be reused.
     /// </summary>
-    public interface IHttpPoster
+    public interface IHttpPost
     {
         Task<HttpResponseMessage> PostAsync(string requestUri, string jsonContent, CancellationToken cancellationToken);
     }
 
-    public class HttpClientHttpPoster : IHttpPoster
+    public class HttpClientHttpPost : IHttpPost
     {
         readonly HttpClient httpClient;
 
-        public HttpClientHttpPoster(HttpClient httpClient)
+        public HttpClientHttpPost(HttpClient httpClient)
         {
             this.httpClient = httpClient;
         }
@@ -41,16 +41,16 @@ namespace Genesys.Bayeux.Client
     {
         static readonly ILog log = BayeuxClient.log;
 
-        readonly IHttpPoster httpPoster;
+        readonly IHttpPost httpPost;
         readonly string url;
         readonly Action<IEnumerable<JObject>> eventPublisher;
 
         public HttpTransport(
-            IHttpPoster httpPoster, 
+            IHttpPost httpPost, 
             string url,
             Action<IEnumerable<JObject>> eventPublisher)
         {
-            this.httpPoster = httpPoster;
+            this.httpPost = httpPost;
             this.url = url;
             this.eventPublisher = eventPublisher;
         }
@@ -59,7 +59,7 @@ namespace Genesys.Bayeux.Client
         {
             var messageStr = JsonConvert.SerializeObject(requests);
             log.Debug($"Posting: {messageStr}");
-            var httpResponse = await httpPoster.PostAsync(url, messageStr, cancellationToken);
+            var httpResponse = await httpPost.PostAsync(url, messageStr, cancellationToken);
 
             // As a stream it could have better performance, but logging is easier with strings.
             var responseStr = await httpResponse.Content.ReadAsStringAsync();
@@ -86,14 +86,9 @@ namespace Genesys.Bayeux.Client
                     throw new BayeuxProtocolException("No 'channel' field in message.");
 
                 if (channel.StartsWith("/meta/"))
-                {
-                    // TODO: this is not good. Several responses can be obtained, if several requests are sent.
                     responseObj = message;
-                }
                 else
-                {
                     events.Add(message);
-                }
             }
 
             eventPublisher(events);
