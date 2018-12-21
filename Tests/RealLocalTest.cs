@@ -42,7 +42,7 @@ namespace Tests
             }
         }
 
-        class Context : IContext
+        class Context : IBayeuxClientContext
         {
             readonly WebSocketTransport wsTransport;
 
@@ -79,7 +79,7 @@ namespace Tests
         {
             var webSocket = SystemClientWebSocket.CreateClientWebSocket();
 
-            using (var transport = new WebSocketTransport(webSocket, "ws://localhost:8080/bayeux/",
+            using (var transport = new WebSocketTransport(webSocket, "ws://localhost:5088/bayeux/",
                     responseTimeout: TimeSpan.FromSeconds(30),
                     eventPublisher: events =>
                     {
@@ -88,14 +88,17 @@ namespace Tests
             {
                 await transport.InitAsync(CancellationToken.None);
 
-                var connectLoop = new ConnectLoop("websocket", null, new Context(transport));
-                await connectLoop.Start(CancellationToken.None);
+                using (var connectLoop = new ConnectLoop("websocket", null, new Context(transport)))
+                {
+                    await connectLoop.Start(CancellationToken.None);
 
-                await Task.Delay(TimeSpan.FromSeconds(25));
+                    await Task.Delay(TimeSpan.FromSeconds(60));
 
-                Debug.WriteLine("End");
+                    Debug.WriteLine("End");
+                }
             }
 
+            await Task.Delay(TimeSpan.FromSeconds(5));
             //    var bayeuxClient = new BayeuxClient(url);
 
             //bayeuxClient.EventReceived += (e, args) =>

@@ -17,7 +17,7 @@ using static Genesys.Bayeux.Client.Logging.LogProvider;
 
 namespace Genesys.Bayeux.Client
 {
-    public class BayeuxClient : IDisposable, IContext
+    public class BayeuxClient : IDisposable, IBayeuxClientContext
     {
         // Don't use string formatting for logging, as it is not supported by the internal TraceSource implementation.
         internal static readonly ILog log;
@@ -118,7 +118,7 @@ namespace Genesys.Bayeux.Client
             connectLoop.Start(cancellationToken);
 
         void StopLongPolling() =>
-            connectLoop.Stop();
+            connectLoop.Dispose();
 
         public async Task Stop(CancellationToken cancellationToken = default(CancellationToken))
         {
@@ -326,16 +326,16 @@ namespace Genesys.Bayeux.Client
         void RunInEventTaskScheduler(Action action) =>
             Task.Factory.StartNew(action, CancellationToken.None, TaskCreationOptions.DenyChildAttach, eventTaskScheduler);
 
-        Task<JObject> IContext.Request(object request, CancellationToken cancellationToken)
+        Task<JObject> IBayeuxClientContext.Request(object request, CancellationToken cancellationToken)
             => Request(request, cancellationToken);
 
-        Task<JObject> IContext.RequestMany(IEnumerable<object> requests, CancellationToken cancellationToken)
+        Task<JObject> IBayeuxClientContext.RequestMany(IEnumerable<object> requests, CancellationToken cancellationToken)
             => RequestMany(requests, cancellationToken);
 
-        void IContext.SetConnectionState(ConnectionState newState)
+        void IBayeuxClientContext.SetConnectionState(ConnectionState newState)
             => OnConnectionStateChanged(newState);
 
-        void IContext.SetConnection(BayeuxConnection newConnection)
+        void IBayeuxClientContext.SetConnection(BayeuxConnection newConnection)
             => SetNewConnection(newConnection);
     }
 }

@@ -112,5 +112,41 @@ namespace Tests
             
             Assert.IsTrue(completedTask.IsCanceled);
         }
+
+        async Task PleaseThrow()
+        {
+            throw new OperationCanceledException();
+            await Task.Delay(0);
+        }
+
+        [TestMethod]
+        [ExpectedException(typeof(OperationCanceledException))]
+        public async Task Check_exception_thrown_on_cancel()
+        {
+            await PleaseThrow();
+        }
+
+        async Task PleaseThrow2(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Delay(0);
+        }
+
+        [TestMethod]
+        [ExpectedException(typeof(OperationCanceledException))]
+        public async Task Check_exception_thrown_on_cancel_with_cancellationToken_as_method_parameter()
+        {
+            await PleaseThrow2(new CancellationToken(canceled: true));
+        }
+
+        [TestMethod]
+        [ExpectedException(typeof(TaskCanceledException))]
+        public async Task Check_exception_thrown_on_cancel_with_cancellationToken_as_Task_paramter()
+        {
+            var cancellationToken = new CancellationToken(canceled: true);
+            await Task.Run(
+                () => PleaseThrow2(cancellationToken), 
+                cancellationToken);
+        }
     }
 }

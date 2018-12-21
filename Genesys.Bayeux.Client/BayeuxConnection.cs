@@ -12,11 +12,11 @@ namespace Genesys.Bayeux.Client
     class BayeuxConnection
     {
         readonly string clientId;
-        readonly IContext context;
+        readonly IBayeuxClientContext context;
 
         public BayeuxConnection(
             string clientId,
-            IContext context)
+            IBayeuxClientContext context)
         {
             this.clientId = clientId;
             this.context = context;

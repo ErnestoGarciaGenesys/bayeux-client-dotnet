@@ -11,7 +11,7 @@ using static Genesys.Bayeux.Client.BayeuxClient;
 
 namespace Genesys.Bayeux.Client
 {
-    internal interface IContext
+    internal interface IBayeuxClientContext
     {
         Task<JObject> Request(object request, CancellationToken cancellationToken);
         Task<JObject> RequestMany(IEnumerable<object> requests, CancellationToken cancellationToken);
@@ -19,25 +19,25 @@ namespace Genesys.Bayeux.Client
         void SetConnection(BayeuxConnection newConnection);
     }
 
-    class ConnectLoop
+    class ConnectLoop : IDisposable
     {
         static readonly ILog log = BayeuxClient.log;
 
         readonly string connectionType;
         readonly ReconnectDelays reconnectDelays;
-        readonly IContext context;
+        readonly IBayeuxClientContext context;
 
         readonly CancellationTokenSource pollCancel = new CancellationTokenSource();
 
         BayeuxConnection currentConnection;
         BayeuxAdvice lastAdvice = new BayeuxAdvice();
-        bool rehandshakeOnFailure = false;
+        bool rehandshakeDueToFailedRequest = false;
 
 
         public ConnectLoop(
             string connectionType,
             IEnumerable<TimeSpan> reconnectDelays,
-            IContext context)
+            IBayeuxClientContext context)
         {
             this.connectionType = connectionType;
             this.reconnectDelays = new ReconnectDelays(reconnectDelays);
@@ -68,11 +68,12 @@ namespace Genesys.Bayeux.Client
                     await Poll();
 
                 context.SetConnectionState(ConnectionState.Disconnected);
+                log.Info("Long-polling stopped.");
             }
-            catch (TaskCanceledException)
+            catch (OperationCanceledException)
             {
                 context.SetConnectionState(ConnectionState.Disconnected);
-                log.Info("Long-polling cancelled.");
+                log.Info("Long-polling stopped.");
             }
             catch (Exception e)
             {
@@ -82,7 +83,7 @@ namespace Genesys.Bayeux.Client
             }
         }
 
-        public void Stop()
+        public void Dispose()
         {
             pollCancel.Cancel();
         }
@@ -93,9 +94,9 @@ namespace Genesys.Bayeux.Client
 
             try
             {
-                if (rehandshakeOnFailure)
+                if (rehandshakeDueToFailedRequest)
                 {
-                    rehandshakeOnFailure = false;
+                    rehandshakeDueToFailedRequest = false;
                     log.Debug($"Re-handshaking due to previously failed HTTP request.");
                     await Handshake(pollCancel.Token);
                 }
@@ -103,7 +104,7 @@ namespace Genesys.Bayeux.Client
                     {
                         case "none":
                             log.Debug("Long-polling stopped on server request.");
-                            Stop();
+                            Dispose();
                             break;
 
                         // https://docs.cometd.org/current/reference/#_the_code_long_polling_code_response_messages
@@ -133,7 +134,7 @@ namespace Genesys.Bayeux.Client
             catch (HttpRequestException e)
             {
                 context.SetConnectionState(ConnectionState.Connecting);
-                rehandshakeOnFailure = true;
+                rehandshakeDueToFailedRequest = true;
 
                 var reconnectDelay = reconnectDelays.GetNext();
                 log.ErrorException($"HTTP request failed. Rehandshaking after {reconnectDelay}", e);
