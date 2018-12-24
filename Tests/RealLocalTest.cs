@@ -51,6 +51,11 @@ namespace Tests
                 this.wsTransport = wsTransport;
             }
 
+            public Task Reopen(CancellationToken cancellationToken)
+            {
+                return wsTransport.Open(cancellationToken);
+            }
+
             public Task<JObject> Request(object request, CancellationToken cancellationToken)
             {
                 return wsTransport.Request(new[] { request }, cancellationToken);
@@ -63,7 +68,7 @@ namespace Tests
 
             public void SetConnection(BayeuxConnection newConnection)
             {
-                Debug.WriteLine($"New connection: {newConnection}");
+                Debug.WriteLine("New connection");
 
                 newConnection.DoSubscription(new[] { "/test" }, new string[] { }, CancellationToken.None);
             }
@@ -77,23 +82,24 @@ namespace Tests
         [TestMethod]
         public async Task Run_for_a_while_using_WebSocket()
         {
-            var webSocket = SystemClientWebSocket.CreateClientWebSocket();
-
-            using (var transport = new WebSocketTransport(webSocket, "ws://localhost:5088/bayeux/",
-                    responseTimeout: TimeSpan.FromSeconds(30),
-                    eventPublisher: events =>
-                    {
-                        Debug.WriteLine($"Events received: {events}");
-                    }))
+            using (var transport = new WebSocketTransport(
+                webSocketFactory: () => SystemClientWebSocket.CreateClientWebSocket(),
+                uri: new Uri("ws://localhost:5088/bayeux/"),
+                responseTimeout: TimeSpan.FromSeconds(30),
+                eventPublisher: events =>
+                {
+                    foreach (var ev in events)
+                        Debug.WriteLine($"Event received: {ev}");
+                }))
             {
-                await transport.InitAsync(CancellationToken.None);
+                await transport.Open(CancellationToken.None);
 
                 using (var connectLoop = new ConnectLoop("websocket", null, new Context(transport)))
                 {
                     await connectLoop.Start(CancellationToken.None);
 
-                    await Task.Delay(TimeSpan.FromSeconds(60));
-
+                    await Delay(120);
+                    
                     Debug.WriteLine("End");
                 }
             }
@@ -124,6 +130,34 @@ namespace Tests
             }
 
             public object EventTaskScheduler { get; set; }
+        }
+
+
+        [TestMethod]
+        public async Task Open_and_close_WebSocket()
+        {
+            using (var webSocket = SystemClientWebSocket.CreateClientWebSocket())
+            {
+                Debug.WriteLine("Connecting");
+                await webSocket.ConnectAsync(new Uri("ws://localhost:5088/bayeux/"), CancellationToken.None);
+                await Delay(10);
+                //Debug.WriteLine("Sending");
+                //await webSocket.SendAsync(new ArraySegment<byte>(Encoding.UTF8.GetBytes("hola")), WebSocketMessageType.Text, endOfMessage: true, cancellationToken: CancellationToken.None);
+                //await Delay(10);
+                Debug.WriteLine("Closing");
+                await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
+                await Delay(5);
+                Debug.WriteLine("Connecting again");
+                await webSocket.ConnectAsync(new Uri("ws://localhost:5088/bayeux/"), CancellationToken.None);
+                await Delay(5);
+                Debug.WriteLine("End");
+            }
+        }
+
+        async Task Delay(int seconds)
+        {
+            Debug.WriteLine($"Waiting {seconds}s...");
+            await Task.Delay(TimeSpan.FromSeconds(seconds));
         }
     }
 }

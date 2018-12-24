@@ -13,6 +13,7 @@ namespace Genesys.Bayeux.Client
 {
     internal interface IBayeuxClientContext
     {
+        Task Reopen(CancellationToken cancellationToken);
         Task<JObject> Request(object request, CancellationToken cancellationToken);
         Task<JObject> RequestMany(IEnumerable<object> requests, CancellationToken cancellationToken);
         void SetConnectionState(ConnectionState newState);
@@ -31,7 +32,8 @@ namespace Genesys.Bayeux.Client
 
         BayeuxConnection currentConnection;
         BayeuxAdvice lastAdvice = new BayeuxAdvice();
-        bool rehandshakeDueToFailedRequest = false;
+        bool transportFailed = false;
+        bool transportClosed = false;
 
 
         public ConnectLoop(
@@ -94,10 +96,18 @@ namespace Genesys.Bayeux.Client
 
             try
             {
-                if (rehandshakeDueToFailedRequest)
+                if (transportFailed)
                 {
-                    rehandshakeDueToFailedRequest = false;
-                    log.Debug($"Re-handshaking due to previously failed HTTP request.");
+                    transportFailed = false;
+
+                    if (transportClosed)
+                    {
+                        transportClosed = false;
+                        log.Debug($"Re-opening transport due to previously failed request.");
+                        await context.Reopen(pollCancel.Token);
+                    }
+
+                    log.Debug($"Re-handshaking due to previously failed request.");
                     await Handshake(pollCancel.Token);
                 }
                 else switch (lastAdvice.reconnect)
@@ -134,10 +144,21 @@ namespace Genesys.Bayeux.Client
             catch (HttpRequestException e)
             {
                 context.SetConnectionState(ConnectionState.Connecting);
-                rehandshakeDueToFailedRequest = true;
+                transportFailed = true;
 
                 var reconnectDelay = reconnectDelays.GetNext();
                 log.ErrorException($"HTTP request failed. Rehandshaking after {reconnectDelay}", e);
+                await Task.Delay(reconnectDelay);
+            }
+            catch (BayeuxTransportException e)
+            {
+                transportFailed = true;
+                transportClosed = e.TransportClosed;
+
+                context.SetConnectionState(ConnectionState.Connecting);
+
+                var reconnectDelay = reconnectDelays.GetNext();
+                log.ErrorException($"Request transport failed. Retrying after {reconnectDelay}", e);
                 await Task.Delay(reconnectDelay);
             }
             catch (BayeuxRequestException e)

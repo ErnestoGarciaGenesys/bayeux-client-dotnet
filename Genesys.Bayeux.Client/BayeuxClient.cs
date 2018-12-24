@@ -326,6 +326,9 @@ namespace Genesys.Bayeux.Client
         void RunInEventTaskScheduler(Action action) =>
             Task.Factory.StartNew(action, CancellationToken.None, TaskCreationOptions.DenyChildAttach, eventTaskScheduler);
 
+        Task IBayeuxClientContext.Reopen(CancellationToken _)
+            => Task.FromResult(0);
+
         Task<JObject> IBayeuxClientContext.Request(object request, CancellationToken cancellationToken)
             => Request(request, cancellationToken);
 
