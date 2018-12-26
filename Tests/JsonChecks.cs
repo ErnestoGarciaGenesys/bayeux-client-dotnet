@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace Tests
 {
@@ -20,5 +22,15 @@ namespace Tests
 
         List<Dictionary<string, string>> DeserializeAsArray(string s) =>
             JsonConvert.DeserializeObject<List<Dictionary<string, string>>>(s);
+
+        [TestMethod]
+        public void Write_JSON()
+        {
+            var input = JsonConvert.SerializeObject(new { greeting = "hola" });
+            var read = JToken.Parse(input);
+            //ReadFrom(new JsonTextReader(reader));
+            
+            Debug.WriteLine($"Received: {read.ToString(Formatting.None)}");
+        }
     }
 }

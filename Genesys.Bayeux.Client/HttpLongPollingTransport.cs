@@ -3,6 +3,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Threading;
@@ -59,15 +60,21 @@ namespace Genesys.Bayeux.Client
         public async Task<JObject> Request(IEnumerable<object> requests, CancellationToken cancellationToken)
         {
             var messageStr = JsonConvert.SerializeObject(requests);
-            log.Debug($"Posting: {messageStr}");
+            log.Debug(() => $"Posting: {messageStr}");
+
             var httpResponse = await httpPost.PostAsync(url, messageStr, cancellationToken);
 
-            // As a stream it could have better performance, but logging is easier with strings.
-            var responseStr = await httpResponse.Content.ReadAsStringAsync();
-            log.Debug($"Received: {responseStr}");
+            if (!httpResponse.IsSuccessStatusCode)
+            {
+                var responseStr = await httpResponse.Content.ReadAsStringAsync();
+                log.Debug(() => $"Received: {responseStr}");
+            }
+
             httpResponse.EnsureSuccessStatusCode();
 
-            var responseToken = JToken.Parse(responseStr);
+            var responseToken = JToken.ReadFrom(new JsonTextReader(new StreamReader(await httpResponse.Content.ReadAsStreamAsync())));
+            log.Debug(() => $"Received: {responseToken.ToString(Formatting.None)}");
+            
             IEnumerable<JToken> tokens = responseToken is JArray ?
                 (IEnumerable<JToken>)responseToken :
                 new[] { responseToken };

@@ -51,7 +51,7 @@ namespace Tests
             var bayeuxClient = new BayeuxClient(
                 new WebSocketTransportOptions()
                 {
-                    Uri = new Uri("ws://localhost:5088/bayeux/"),
+                    Uri = new Uri("ws://localhost:8080/bayeux/"),
                 });
 
             bayeuxClient.EventReceived += (e, args) =>

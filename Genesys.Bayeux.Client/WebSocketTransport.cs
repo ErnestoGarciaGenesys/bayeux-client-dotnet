@@ -152,8 +152,7 @@ namespace Genesys.Bayeux.Client
             using (var reader = new StreamReader(stream, Encoding.UTF8))
             {
                 var received = JToken.ReadFrom(new JsonTextReader(reader));
-
-                log.Debug($"Received: {received}");
+                log.Debug(() => $"Received: {received.ToString(Formatting.None)}");
 
                 var responses = received is JObject ?
                     new[] { (JObject)received } :
@@ -200,7 +199,7 @@ namespace Genesys.Bayeux.Client
             }
             
             var messageStr = JsonConvert.SerializeObject(requestsJArray);
-            log.Debug($"Posting: {messageStr}");
+            log.Debug(() => $"Posting: {messageStr}");
             await SendAsync(messageStr, cancellationToken);
 
             var timeoutTask = Task.Delay(responseTimeout, cancellationToken);
