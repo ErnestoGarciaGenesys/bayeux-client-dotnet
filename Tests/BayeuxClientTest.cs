@@ -118,6 +118,30 @@ namespace Tests
             }
         }
 
+        [TestMethod]
+        public async Task Reconnection_when_started_in_background()
+        {
+            var mock = new Mock<HttpMessageHandler>();
+            mock.Protected().As<IHttpMessageHandlerProtected>()
+                .SetupSequence(h => h.SendAsync(It.IsAny<HttpRequestMessage>(), It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new HttpRequestException("mock raising exception"))
+                .ReturnsAsync(BuildBayeuxResponse(successfulHandshakeResponse))
+                .ReturnsAsync(BuildBayeuxResponse(successfulConnectResponse))
+                .ReturnsIndefinitely(() =>
+                  Task.Delay(TimeSpan.FromSeconds(5))
+                      .ContinueWith(t => BuildBayeuxResponse(successfulConnectResponse)))
+                ;
+
+            var bayeuxClient = new BayeuxClient(new HttpClient(mock.Object), Url,
+                reconnectDelays: new[] { TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2) });
+
+            using (bayeuxClient)
+            {
+                bayeuxClient.StartInBackground();
+                await Task.Delay(TimeSpan.FromSeconds(20));
+            }
+        }
+
         // TODO: test ConnectionStateChangedEvents
 
         [TestMethod]

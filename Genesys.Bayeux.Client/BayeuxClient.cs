@@ -121,7 +121,14 @@ namespace Genesys.Bayeux.Client
         /// </summary>
         public Task Start(CancellationToken cancellationToken = default(CancellationToken)) =>
             connectLoop.Start(cancellationToken);
-        
+
+        /// <summary>
+        /// Does the Bayeux handshake, and starts long-polling in the background with reconnects as needed.
+        /// This method does not fail.
+        /// </summary>
+        public void StartInBackground() =>
+            connectLoop.StartInBackground();
+
         public async Task Stop(CancellationToken cancellationToken = default(CancellationToken))
         {
             connectLoop.Dispose();

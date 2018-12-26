@@ -34,6 +34,7 @@ namespace Genesys.Bayeux.Client
         BayeuxAdvice lastAdvice = new BayeuxAdvice();
         bool transportFailed = false;
         bool transportClosed = false;
+        bool startInBackground = false;
 
 
         public ConnectLoop(
@@ -59,6 +60,16 @@ namespace Genesys.Bayeux.Client
             // A way to test the re-handshake with a real server is to put some delay here, between the first handshake response,
             // and the first try to connect. That will cause an "Invalid client id" response, with an advice of reconnect=handshake.
             // This can also be tested with a fake server in unit tests.
+
+            LoopPolling();
+        }
+
+        public void StartInBackground()
+        {
+            if (startLatch.AlreadyRun())
+                throw new Exception("Already started.");
+
+            startInBackground = true;
 
             LoopPolling();
         }
@@ -97,7 +108,13 @@ namespace Genesys.Bayeux.Client
 
             try
             {
-                if (transportFailed)
+                if (startInBackground)
+                {
+                    startInBackground = false;
+                    await context.Open(pollCancel.Token);
+                    await Handshake(pollCancel.Token);
+                }
+                else if (transportFailed)
                 {
                     transportFailed = false;
 
