@@ -13,7 +13,7 @@ using Newtonsoft.Json.Linq;
 
 namespace Genesys.Bayeux.Client
 {
-    internal class WebSocketTransport : IDisposable
+    internal class WebSocketTransport : IBayeuxTransport
     {
         static readonly ILog log = BayeuxClient.log;
 
@@ -92,7 +92,7 @@ namespace Genesys.Bayeux.Client
             try
             {
                 while (!cancelToken.IsCancellationRequested)
-                    OnMessageReceived(await ReceiveMessage(cancelToken));
+                    HandleReceivedMessage(await ReceiveMessage(cancelToken));
 
                 fault = null;
             }
@@ -147,7 +147,7 @@ namespace Genesys.Bayeux.Client
             return stream;
         }
 
-        void OnMessageReceived(Stream stream)
+        void HandleReceivedMessage(Stream stream)
         {
             using (var reader = new StreamReader(stream, Encoding.UTF8))
             {

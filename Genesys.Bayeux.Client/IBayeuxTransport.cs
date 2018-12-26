@@ -6,10 +6,9 @@ using System.Threading.Tasks;
 
 namespace Genesys.Bayeux.Client
 {
-    interface IBayeuxTransport : IDisposable
+    internal interface IBayeuxTransport : IDisposable
     {
-        Task Init(CancellationToken cancellationToken);
-
+        Task Open(CancellationToken cancellationToken);
         Task<JObject> Request(IEnumerable<object> requests, CancellationToken cancellationToken);
     }
 }

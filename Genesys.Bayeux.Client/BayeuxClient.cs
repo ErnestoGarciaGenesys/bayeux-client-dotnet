@@ -19,7 +19,6 @@ namespace Genesys.Bayeux.Client
 {
     public class BayeuxClient : IDisposable, IBayeuxClientContext
     {
-        // Don't use string formatting for logging, as it is not supported by the internal TraceSource implementation.
         internal static readonly ILog log;
 
         static BayeuxClient()
@@ -30,18 +29,13 @@ namespace Genesys.Bayeux.Client
             log = LogProvider.GetLogger(typeof(BayeuxClient).Namespace);
         }
 
-        readonly HttpTransport transport;
+        readonly IBayeuxTransport transport;
         readonly TaskScheduler eventTaskScheduler;
         readonly Subscriber subscriber;
         readonly ConnectLoop connectLoop;
 
         volatile BayeuxConnection currentConnection;
 
-
-        /// <param name="httpPost">
-        /// An HTTP POST implementation. It should not do HTTP pipelining (rarely done for POSTs anyway).
-        /// See https://docs.cometd.org/current/reference/#_two_connection_operation.
-        /// </param>
         /// <param name="eventTaskScheduler">
         /// <para>
         /// TaskScheduler for invoking events. Usually, you will be good by providing null. If you decide to 
@@ -53,43 +47,54 @@ namespace Genesys.Bayeux.Client
         /// is null, then a new TaskScheduler with ordered execution will be created.
         /// </para>
         /// </param>
-        /// <param name="url"></param>
         /// <param name="reconnectDelays">
         /// When a request results in network errors, reconnection trials will be delayed based on the 
         /// values passed here. The last element of the collection will be re-used indefinitely.
         /// </param>
+        public BayeuxClient(
+            HttpLongPollingTransportOptions options,
+            IEnumerable<TimeSpan> reconnectDelays = null,
+            TaskScheduler eventTaskScheduler = null)
+        {
+            this.transport = options.Build(PublishEvents);
+            this.eventTaskScheduler = ChooseEventTaskScheduler(eventTaskScheduler);
+            this.connectLoop = new ConnectLoop("long-polling", reconnectDelays, this);
+            this.subscriber = new Subscriber(this);
+        }
+
+        public BayeuxClient(
+            WebSocketTransportOptions options,
+            IEnumerable<TimeSpan> reconnectDelays = null,
+            TaskScheduler eventTaskScheduler = null)
+        {
+            this.transport = options.Build(PublishEvents);
+            this.eventTaskScheduler = ChooseEventTaskScheduler(eventTaskScheduler);
+            this.connectLoop = new ConnectLoop("websocket", reconnectDelays, this);
+            this.subscriber = new Subscriber(this);
+        }
+
+        [Obsolete("Use constructor with HttpLongPollingTransportOptions")]
         public BayeuxClient(
             IHttpPost httpPost,
             string url,
             IEnumerable<TimeSpan> reconnectDelays = null,
             TaskScheduler eventTaskScheduler = null)
         {
-            this.transport = new HttpTransport(httpPost, url, PublishEvents);
+            this.transport = new HttpLongPollingTransport(httpPost, url, PublishEvents);
             this.eventTaskScheduler = ChooseEventTaskScheduler(eventTaskScheduler);
-            this.connectLoop = new ConnectLoop(
-                "long-polling",
-                reconnectDelays,
-                this);
+            this.connectLoop = new ConnectLoop("long-polling", reconnectDelays, this);
             this.subscriber = new Subscriber(this);
         }
 
+        [Obsolete("Use constructor with HttpLongPollingTransportOptions")]
         public BayeuxClient(
-            HttpClient httpClient, 
-            string url, 
-            IEnumerable<TimeSpan> reconnectDelays = null, 
+            HttpClient httpClient,
+            string url,
+            IEnumerable<TimeSpan> reconnectDelays = null,
             TaskScheduler eventTaskScheduler = null)
             : this(new HttpClientHttpPost(httpClient), url, reconnectDelays, eventTaskScheduler)
         {
         }
-        
-        // TODO: Modify all ctors for clear construction of a BayeuxClient. Possibly through static factory methods.
-        //public BayeuxClient(string url, TaskScheduler eventTaskScheduler = null, IEnumerable<TimeSpan> reconnectDelays = null)
-        //{
-        //    this.transport = new WebSocketTransport(url);
-        //    this.eventTaskScheduler = ChooseEventTaskScheduler(eventTaskScheduler);
-        //    this.longPollingLoop = new LongPollingLoop(this, reconnectDelays);
-        //    this.subscriber = new Subscriber(this);
-        //}
 
         static TaskScheduler ChooseEventTaskScheduler(TaskScheduler eventTaskScheduler)
         {
@@ -116,36 +121,19 @@ namespace Genesys.Bayeux.Client
         /// </summary>
         public Task Start(CancellationToken cancellationToken = default(CancellationToken)) =>
             connectLoop.Start(cancellationToken);
-
-        void StopLongPolling() =>
-            connectLoop.Dispose();
-
+        
         public async Task Stop(CancellationToken cancellationToken = default(CancellationToken))
         {
-            StopLongPolling();
+            connectLoop.Dispose();
 
             var connection = Interlocked.Exchange(ref currentConnection, null);
             if (connection != null)
                 await connection.Disconnect(cancellationToken);
         }
 
-        protected virtual void Dispose(bool disposing)
-        {
-            if (disposing)
-                _ = Stop();
-            else
-                StopLongPolling();
-        }
-
         public void Dispose()
         {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        ~BayeuxClient()
-        {
-            Dispose(false);
+            _ = Stop();
         }
 
         public enum ConnectionState
@@ -326,8 +314,8 @@ namespace Genesys.Bayeux.Client
         void RunInEventTaskScheduler(Action action) =>
             Task.Factory.StartNew(action, CancellationToken.None, TaskCreationOptions.DenyChildAttach, eventTaskScheduler);
 
-        Task IBayeuxClientContext.Reopen(CancellationToken _)
-            => Task.FromResult(0);
+        Task IBayeuxClientContext.Open(CancellationToken cancellationToken)
+            => transport.Open(cancellationToken);
 
         Task<JObject> IBayeuxClientContext.Request(object request, CancellationToken cancellationToken)
             => Request(request, cancellationToken);

@@ -10,10 +10,6 @@ using System.Threading.Tasks;
 
 namespace Genesys.Bayeux.Client
 {
-    /// <summary>
-    /// Abstraction for any HTTP client implementation.
-    /// Enables the implementation of retry policies, useful for servers that may occasionally need a session refresh. Retries are general not supported by HttpClient, as, for some versions, SendAsync disposes the content of HttpRequestMessage. This means that a failed SendAsync call can't be retried, as the HttpRequestMessage can't be reused.
-    /// </summary>
     public interface IHttpPost
     {
         Task<HttpResponseMessage> PostAsync(string requestUri, string jsonContent, CancellationToken cancellationToken);
@@ -37,7 +33,7 @@ namespace Genesys.Bayeux.Client
         }
     }
 
-    class HttpTransport
+    class HttpLongPollingTransport : IBayeuxTransport
     {
         static readonly ILog log = BayeuxClient.log;
 
@@ -45,7 +41,7 @@ namespace Genesys.Bayeux.Client
         readonly string url;
         readonly Action<IEnumerable<JObject>> eventPublisher;
 
-        public HttpTransport(
+        public HttpLongPollingTransport(
             IHttpPost httpPost, 
             string url,
             Action<IEnumerable<JObject>> eventPublisher)
@@ -54,6 +50,11 @@ namespace Genesys.Bayeux.Client
             this.url = url;
             this.eventPublisher = eventPublisher;
         }
+
+        public void Dispose() { }
+
+        public Task Open(CancellationToken cancellationToken)
+            => Task.FromResult(0);
 
         public async Task<JObject> Request(IEnumerable<object> requests, CancellationToken cancellationToken)
         {

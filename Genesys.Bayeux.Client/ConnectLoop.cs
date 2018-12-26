@@ -13,7 +13,7 @@ namespace Genesys.Bayeux.Client
 {
     internal interface IBayeuxClientContext
     {
-        Task Reopen(CancellationToken cancellationToken);
+        Task Open(CancellationToken cancellationToken);
         Task<JObject> Request(object request, CancellationToken cancellationToken);
         Task<JObject> RequestMany(IEnumerable<object> requests, CancellationToken cancellationToken);
         void SetConnectionState(ConnectionState newState);
@@ -53,6 +53,7 @@ namespace Genesys.Bayeux.Client
             if (startLatch.AlreadyRun())
                 throw new Exception("Already started.");
 
+            await context.Open(cancellationToken);
             await Handshake(cancellationToken);
 
             // A way to test the re-handshake with a real server is to put some delay here, between the first handshake response,
@@ -104,7 +105,7 @@ namespace Genesys.Bayeux.Client
                     {
                         transportClosed = false;
                         log.Debug($"Re-opening transport due to previously failed request.");
-                        await context.Reopen(pollCancel.Token);
+                        await context.Open(pollCancel.Token);
                     }
 
                     log.Debug($"Re-handshaking due to previously failed request.");
