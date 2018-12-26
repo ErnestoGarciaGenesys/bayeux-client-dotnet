@@ -21,6 +21,7 @@ namespace Tests
         [TestMethod]
         public async Task Run_for_a_while_using_HTTP()
         {
+            // Begin: README example
             var httpClient = new HttpClient();
             var bayeuxClient = new BayeuxClient(
                 new HttpLongPollingTransportOptions()
@@ -38,6 +39,7 @@ namespace Tests
             bayeuxClient.AddSubscriptions("/**");
 
             await bayeuxClient.Start();
+            // End: README example
 
             using (bayeuxClient)
             {
@@ -48,11 +50,13 @@ namespace Tests
         [TestMethod]
         public async Task Run_for_a_while_using_WebSocket()
         {
+            // Begin: README example
             var bayeuxClient = new BayeuxClient(
                 new WebSocketTransportOptions()
                 {
                     Uri = new Uri("ws://localhost:8080/bayeux/"),
                 });
+            // End: README example
 
             bayeuxClient.EventReceived += (e, args) =>
                 Debug.WriteLine($"Event received on channel {args.Channel} with data\n{args.Data}");

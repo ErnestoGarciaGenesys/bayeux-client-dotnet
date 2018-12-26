@@ -10,8 +10,8 @@
     <RootNamespace>Genesys.Bayeux.Client</RootNamespace>
     <Company>Genesys</Company>
     <Product>Genesys PureEngage</Product>
-    <Version>0.0.2</Version>
-    <Description>This library provides a Bayeux client for .NET clients to receive events from a Bayeux server, through the HTTP long-polling transport.</Description>
+    <Version>0.0.3</Version>
+    <Description>This library provides a client for receiving events from a Bayeux server, through the HTTP long-polling transport, or WebSockets. It provides convenient async methods.</Description>
     <RepositoryUrl>https://github.com/ErnestoGarciaGenesys/bayeux-client-dotnet</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
