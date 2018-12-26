@@ -104,17 +104,17 @@ namespace Genesys.Bayeux.Client
                     if (transportClosed)
                     {
                         transportClosed = false;
-                        log.Debug($"Re-opening transport due to previously failed request.");
+                        log.Info($"Re-opening transport due to previously failed request.");
                         await context.Open(pollCancel.Token);
                     }
 
-                    log.Debug($"Re-handshaking due to previously failed request.");
+                    log.Info($"Re-handshaking due to previously failed request.");
                     await Handshake(pollCancel.Token);
                 }
                 else switch (lastAdvice.reconnect)
                     {
                         case "none":
-                            log.Debug("Long-polling stopped on server request.");
+                            log.Info("Long-polling stopped on server request.");
                             Dispose();
                             break;
 
@@ -127,7 +127,7 @@ namespace Genesys.Bayeux.Client
                         // [{"advice":{"interval":0,"reconnect":"handshake"},"channel":"/meta/connect","error":"402::Unknown client","successful":false}]
 
                         case "handshake":
-                            log.Debug($"Re-handshaking after {lastAdvice.interval} ms on server request.");
+                            log.Info($"Re-handshaking after {lastAdvice.interval} ms on server request.");
                             await Task.Delay(lastAdvice.interval);
                             await Handshake(pollCancel.Token);
                             break;
@@ -135,7 +135,7 @@ namespace Genesys.Bayeux.Client
                         case "retry":
                         default:
                             if (lastAdvice.interval > 0)
-                                log.Debug($"Re-connecting after {lastAdvice.interval} ms on server request.");
+                                log.Info($"Re-connecting after {lastAdvice.interval} ms on server request.");
 
                             await Task.Delay(lastAdvice.interval);
                             await Connect(pollCancel.Token);
@@ -148,7 +148,7 @@ namespace Genesys.Bayeux.Client
                 transportFailed = true;
 
                 var reconnectDelay = reconnectDelays.GetNext();
-                log.ErrorException($"HTTP request failed. Rehandshaking after {reconnectDelay}", e);
+                log.WarnException($"HTTP request failed. Rehandshaking after {reconnectDelay}", e);
                 await Task.Delay(reconnectDelay);
             }
             catch (BayeuxTransportException e)
@@ -159,7 +159,7 @@ namespace Genesys.Bayeux.Client
                 context.SetConnectionState(ConnectionState.Connecting);
 
                 var reconnectDelay = reconnectDelays.GetNext();
-                log.ErrorException($"Request transport failed. Retrying after {reconnectDelay}", e);
+                log.WarnException($"Request transport failed. Retrying after {reconnectDelay}", e);
                 await Task.Delay(reconnectDelay);
             }
             catch (BayeuxRequestException e)
