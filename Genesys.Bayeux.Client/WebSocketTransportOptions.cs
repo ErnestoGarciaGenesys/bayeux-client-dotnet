@@ -10,6 +10,10 @@ namespace Genesys.Bayeux.Client
     {
         public Func<WebSocket> WebSocketFactory { get; set; }
         public Uri Uri { get; set; }
+
+        /// <summary>
+        /// Timeout for responses to be received. Must be greater than the expected Connect timeout. (Default is 65 seconds).
+        /// </summary>
         public TimeSpan? ResponseTimeout { get; set; }
         
         internal WebSocketTransport Build(Action<IEnumerable<JObject>> eventPublisher)
@@ -17,7 +21,7 @@ namespace Genesys.Bayeux.Client
             return new WebSocketTransport(
                 WebSocketFactory ?? (() => SystemClientWebSocket.CreateClientWebSocket()),
                 Uri ?? throw new Exception("Please set Uri."),
-                ResponseTimeout ?? TimeSpan.FromSeconds(30), // TODO: this should be different for different kinds of requests
+                ResponseTimeout ?? TimeSpan.FromSeconds(65),
                 eventPublisher);
         }        
     }
