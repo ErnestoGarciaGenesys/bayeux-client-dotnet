@@ -48,7 +48,7 @@ namespace Genesys.Bayeux.Client
             }
             else
             {
-                if (HttpPost != null)
+                if (HttpClient != null)
                     throw new Exception("Set HttpPost or HttpClient, but not both.");
 
                 return new HttpLongPollingTransport(

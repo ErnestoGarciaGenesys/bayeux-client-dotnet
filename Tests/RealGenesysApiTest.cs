@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using Genesys.Bayeux.Client;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace Tests
 {
@@ -28,7 +29,7 @@ namespace Tests
 
         string BaseURL;
         string APIKey;
-        Auth.PasswordGrantTypeCredentials credentials;
+        AuthApi.PasswordGrantTypeCredentials credentials;
         object statistics;
 
         [TestInitialize]
@@ -37,7 +38,7 @@ namespace Tests
             BaseURL = GetTestParam("BaseURL");
             APIKey = GetTestParam("APIKey");
 
-            credentials = new Auth.PasswordGrantTypeCredentials()
+            credentials = new AuthApi.PasswordGrantTypeCredentials()
             {
                 UserName = GetTestParam("UserNamePath") + @"\" + GetTestParam("UserName"),
                 Password = GetTestParam("Password"),
@@ -85,14 +86,18 @@ namespace Tests
         async Task<HttpClient> InitHttpClient(HttpClient httpClient)
         {
             httpClient.DefaultRequestHeaders.Add("x-api-key", APIKey);
-            var token = await Auth.Authenticate(httpClient, BaseURL, credentials);
+            var token = await AuthApi.Authenticate(httpClient, BaseURL, credentials);
             httpClient.DefaultRequestHeaders.Add("Authorization", "Bearer " + token);
             return httpClient;
         }
 
         BayeuxClient InitStatisticsBayeuxClient(HttpClient httpClient)
         {
-            var bayeuxClient = new BayeuxClient(httpClient, BaseURL + "/statistics/v3/notifications");
+            var bayeuxClient = new BayeuxClient(new HttpLongPollingTransportOptions()
+            {
+                HttpClient = httpClient,
+                Uri = BaseURL + "/statistics/v3/notifications",
+            });
 
             bayeuxClient.EventReceived += (e, args) =>
                 Debug.WriteLine($"Event received on channel {args.Channel} with data\n{args.Data}");
@@ -148,7 +153,11 @@ namespace Tests
         public async Task Subscribe_invalid_channel_id()
         {
             var httpClient = await InitHttpClient();
-            var bayeuxClient = new BayeuxClient(httpClient, BaseURL + "/statistics/v3/notifications");
+            var bayeuxClient = new BayeuxClient(new HttpLongPollingTransportOptions()
+            {
+                HttpClient = httpClient,
+                Uri = BaseURL + "/statistics/v3/notifications",
+            });
             await bayeuxClient.Start();
             await bayeuxClient.Subscribe("pepe");
         }
@@ -156,7 +165,7 @@ namespace Tests
         [TestMethod]
         public async Task Too_long_connect_delay_causes_unauthorized_error_in_Workspace_API()
         {
-            var httpClient = 
+            var httpPost = 
                 new WorkspaceApiEnsureAuthorizedHttpPoster(
                     new HttpClientHttpPost(await InitHttpClient()),
                     BaseURL);
@@ -166,7 +175,14 @@ namespace Tests
             //    new StringContent(""));
             //initResponse.EnsureSuccessStatusCode();
 
-            using (var bayeuxClient = new BayeuxClient(httpClient, BaseURL + "/workspace/v3/notifications"))
+            var bayeuxClient = new BayeuxClient(new HttpLongPollingTransportOptions()
+            {
+                HttpPost = httpPost,
+                Uri = BaseURL + "/workspace/v3/notifications",
+            });
+
+
+            using (bayeuxClient)
             {
                 await bayeuxClient.Start();
                 await bayeuxClient.Subscribe("/**");
@@ -204,6 +220,60 @@ namespace Tests
                 }
 
                 return response;
+            }
+        }
+    }
+
+    public class AuthApi
+    {
+        public class PasswordGrantTypeCredentials
+        {
+            public string UserName { get; set; }
+            public string Password { get; set; }
+            public string ClientId { get; set; }
+            public string ClientSecret { get; set; }
+        }
+
+        public static async Task<string> Authenticate(HttpClient httpClient, string baseUrl, PasswordGrantTypeCredentials credentials)
+        {
+            var authRequest = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/auth/v3" + "/oauth/token")
+            {
+                Content = new FormUrlEncodedContent(new Dictionary<string, string>()
+                {
+                    ["grant_type"] = "password",
+                    ["scope"] = "*",
+                    ["clientId"] = credentials.ClientId,
+                    ["username"] = credentials.UserName,
+                    ["password"] = credentials.Password,
+                })
+            };
+
+            authRequest.Headers.Add("Authorization", "Basic " +
+                    Convert.ToBase64String(Encoding.GetEncoding("ISO-8859-1").GetBytes(
+                        credentials.ClientId + ":" + credentials.ClientSecret)));
+
+            authRequest.Headers.Add("Accept", "application/json");
+
+            var response = await httpClient.SendAsync(authRequest);
+
+            var responseContent = await response.Content.ReadAsStringAsync();
+
+            try
+            {
+                var json = JObject.Parse(responseContent);
+
+                var error = json["error"];
+                if (error != null)
+                    throw new Exception($"Authentication error: {error}. Description: " + json["error_description"] ?? "None");
+
+                response.EnsureSuccessStatusCode();
+
+                return json["access_token"].ToString();
+            }
+            catch (JsonReaderException)
+            {
+                response.EnsureSuccessStatusCode();
+                throw;
             }
         }
     }

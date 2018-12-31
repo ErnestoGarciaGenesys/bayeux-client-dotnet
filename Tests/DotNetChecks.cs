@@ -115,8 +115,8 @@ namespace Tests
 
         async Task PleaseThrow()
         {
+            await Task.FromResult(0);
             throw new OperationCanceledException();
-            await Task.Delay(0);
         }
 
         [TestMethod]
