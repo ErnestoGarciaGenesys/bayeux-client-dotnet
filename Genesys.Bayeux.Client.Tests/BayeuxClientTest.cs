@@ -13,7 +13,7 @@ using Moq;
 using Moq.Protected;
 using Newtonsoft.Json;
 
-namespace Tests
+namespace Genesys.Bayeux.Client.Tests
 {
     [TestClass]
     public class BayeuxClientTest
@@ -232,12 +232,12 @@ namespace Tests
                 advice = new { interval = 0, reconnect = "handshake" },
             };
 
-        static readonly object eventMessage =
-            new
-            {
-                channel = "/test",
-                data = new { key = "event data" },
-            };
+        //static readonly object eventMessage =
+        //    new
+        //    {
+        //        channel = "/test",
+        //        data = new { key = "event data" },
+        //    };
 
         static HttpResponseMessage BuildBayeuxResponse(params object[] messages) =>
             new HttpResponseMessage()

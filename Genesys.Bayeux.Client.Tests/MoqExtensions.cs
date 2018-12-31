@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Tests
+namespace Genesys.Bayeux.Client.Tests
 {
     public static class MoqExtensions
     {

@@ -5,7 +5,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace Tests
+namespace Genesys.Bayeux.Client.Tests
 {
     [TestClass]
     public class JsonChecks

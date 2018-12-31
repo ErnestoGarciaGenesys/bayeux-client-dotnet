@@ -6,7 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace Tests
+namespace Genesys.Bayeux.Client.Tests
 {
     [TestClass]
     public class DotNetChecks
