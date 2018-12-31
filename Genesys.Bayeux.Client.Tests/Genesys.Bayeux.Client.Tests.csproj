@@ -83,7 +83,6 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="MoqExtensions.cs" />
-    <Compile Include="RealGenesysApiTest.cs" />
     <Compile Include="BayeuxClientTest.cs" />
     <Compile Include="DotNetChecks.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
@@ -93,10 +92,6 @@
   <ItemGroup>
     <None Include="App.config" />
     <None Include="packages.config" />
-    <None Include="test.template.runsettings" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="test.runsettings" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Genesys.Bayeux.Client\Genesys.Bayeux.Client.csproj">
