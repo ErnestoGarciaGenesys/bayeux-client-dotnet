@@ -20,7 +20,7 @@ namespace Genesys.Bayeux.Client
         readonly Func<WebSocket> webSocketFactory;
         readonly Uri uri;
         readonly TimeSpan responseTimeout;
-        readonly Action<IEnumerable<JObject>> eventPublisher;
+        readonly Func<IEnumerable<JObject>, CancellationToken, Task> eventPublisher;
 
         WebSocket webSocket;
         Task receiverLoopTask;
@@ -29,7 +29,7 @@ namespace Genesys.Bayeux.Client
         readonly ConcurrentDictionary<string, TaskCompletionSource<JObject>> pendingRequests = new ConcurrentDictionary<string, TaskCompletionSource<JObject>>();
         long nextMessageId = 0;
 
-        public WebSocketTransport(Func<WebSocket> webSocketFactory, Uri uri, TimeSpan responseTimeout, Action<IEnumerable<JObject>> eventPublisher)
+        public WebSocketTransport(Func<WebSocket> webSocketFactory, Uri uri, TimeSpan responseTimeout, Func<IEnumerable<JObject>, CancellationToken, Task> eventPublisher)
         {
             this.webSocketFactory = webSocketFactory;
             this.uri = uri;
@@ -59,7 +59,7 @@ namespace Genesys.Bayeux.Client
             }
         }
 
-        public async Task Open(CancellationToken cancellationToken)
+        public async Task OpenAsync(CancellationToken cancellationToken)
         {
             if (receiverLoopCancel != null)
             {
@@ -82,17 +82,17 @@ namespace Genesys.Bayeux.Client
             }
 
             receiverLoopCancel = new CancellationTokenSource();
-            receiverLoopTask = StartReceiverLoop(receiverLoopCancel.Token);
+            receiverLoopTask = StartReceiverLoopAsync(receiverLoopCancel.Token);
         }
 
-        public async Task StartReceiverLoop(CancellationToken cancelToken)
+        public async Task StartReceiverLoopAsync(CancellationToken cancellationToken)
         {
             Exception fault;
 
             try
             {
-                while (!cancelToken.IsCancellationRequested)
-                    HandleReceivedMessage(await ReceiveMessage(cancelToken));
+                while (!cancellationToken.IsCancellationRequested)
+                    await HandleReceivedMessageAsync(await ReceiveMessage(cancellationToken), cancellationToken);
 
                 fault = null;
             }
@@ -147,7 +147,7 @@ namespace Genesys.Bayeux.Client
             return stream;
         }
 
-        void HandleReceivedMessage(Stream stream)
+        internal async Task HandleReceivedMessageAsync(Stream stream, CancellationToken cancellationToken)
         {
             using (var reader = new StreamReader(stream, Encoding.UTF8))
             {
@@ -178,11 +178,11 @@ namespace Genesys.Bayeux.Client
                 }
 
                 if (events.Count > 0)
-                    eventPublisher(events);
+                    await eventPublisher(events, cancellationToken);
             }
         }
 
-        public async Task<JObject> Request(IEnumerable<object> requests, CancellationToken cancellationToken)
+        public async Task<JObject> RequestAsync(IEnumerable<object> requests, CancellationToken cancellationToken)
         {
             var responseTasks = new List<TaskCompletionSource<JObject>>();
             var requestsJArray = JArray.FromObject(requests);
@@ -197,7 +197,7 @@ namespace Genesys.Bayeux.Client
                 pendingRequests.TryAdd(messageId, responseReceived);
                 responseTasks.Add(responseReceived);
             }
-            
+
             var messageStr = JsonConvert.SerializeObject(requestsJArray);
             log.Debug(() => $"Posting: {messageStr}");
             await SendAsync(messageStr, cancellationToken);

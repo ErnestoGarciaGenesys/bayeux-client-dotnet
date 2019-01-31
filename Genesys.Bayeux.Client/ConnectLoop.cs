@@ -1,9 +1,10 @@
 ﻿using Genesys.Bayeux.Client.Logging;
-using Genesys.Bayeux.Client.Util;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,31 +12,32 @@ using static Genesys.Bayeux.Client.BayeuxClient;
 
 namespace Genesys.Bayeux.Client
 {
-    internal interface IBayeuxClientContext
+    public interface IBayeuxClientContext
     {
-        Task Open(CancellationToken cancellationToken);
-        Task<JObject> Request(object request, CancellationToken cancellationToken);
-        Task<JObject> RequestMany(IEnumerable<object> requests, CancellationToken cancellationToken);
-        void SetConnectionState(ConnectionState newState);
-        void SetConnection(BayeuxConnection newConnection);
+        Task OpenAsync(CancellationToken cancellationToken);
+        Task<JObject> RequestAsync(object request, CancellationToken cancellationToken);
+        Task<JObject> RequestManyAsync(IEnumerable<object> requests, CancellationToken cancellationToken);
+        Task SetConnectionStateAsync(ConnectionState newState, CancellationToken cancellationToken);
+        Task SetConnectionAsync(BayeuxConnection newConnection, CancellationToken cancellationToken);
     }
 
     class ConnectLoop : IDisposable
     {
-        static readonly ILog log = BayeuxClient.log;
+        private static readonly ILog log = BayeuxClient.log;
 
-        readonly string connectionType;
-        readonly ReconnectDelays reconnectDelays;
-        readonly IBayeuxClientContext context;
+        private readonly string connectionType;
+        private readonly ReconnectDelays reconnectDelays;
+        private readonly IBayeuxClientContext context;
 
-        readonly CancellationTokenSource pollCancel = new CancellationTokenSource();
+        private readonly CancellationTokenSource pollCancel = new CancellationTokenSource();
 
-        BayeuxConnection currentConnection;
-        BayeuxAdvice lastAdvice = new BayeuxAdvice();
-        bool transportFailed = false;
-        bool transportClosed = false;
-        bool startInBackground = false;
-
+        private BayeuxConnection currentConnection;
+        private BayeuxAdvice lastAdvice = new BayeuxAdvice();
+        private bool transportFailed = false;
+        private bool transportClosed = false;
+        private bool startInBackground = false;
+        private readonly object isStartedLock = new object();
+        private bool isStarted = false;
 
         public ConnectLoop(
             string connectionType,
@@ -47,52 +49,80 @@ namespace Genesys.Bayeux.Client
             this.context = context;
         }
 
-        readonly BooleanLatch startLatch = new BooleanLatch();
-
-        public async Task Start(CancellationToken cancellationToken)
+        public async Task StartAsync(CancellationToken cancellationToken)
         {
-            if (startLatch.AlreadyRun())
-                throw new Exception("Already started.");
+            try
+            {
+                lock (isStartedLock)
+                {
+                    if (isStarted)
+                        throw new InvalidOperationException("Already started.");
+                    isStarted = true;
+                }
 
-            await context.Open(cancellationToken);
-            await Handshake(cancellationToken);
+                await context.OpenAsync(cancellationToken);
+                await HandshakeAsync(cancellationToken);
 
-            // A way to test the re-handshake with a real server is to put some delay here, between the first handshake response,
-            // and the first try to connect. That will cause an "Invalid client id" response, with an advice of reconnect=handshake.
-            // This can also be tested with a fake server in unit tests.
+                // A way to test the re-handshake with a real server is to put some delay here, between the first handshake response,
+                // and the first try to connect. That will cause an "Invalid client id" response, with an advice of reconnect=handshake.
+                // This can also be tested with a fake server in unit tests.
 
-            LoopPolling();
+                await StartLoopPollingAsync(cancellationToken);
+            }
+            catch
+            {
+                lock (isStartedLock)
+                {
+                    isStarted = false;
+                }
+                throw;
+            }
         }
 
-        public void StartInBackground()
+        public async Task StartInBackgroundAsync(CancellationToken cancellationToken)
         {
-            if (startLatch.AlreadyRun())
-                throw new Exception("Already started.");
+            try
+            {
+                lock (isStartedLock)
+                {
+                    if (isStarted)
+                        throw new InvalidOperationException("Already started.");
+                    isStarted = true;
+                }
 
-            startInBackground = true;
+                startInBackground = true;
 
-            LoopPolling();
+                await StartLoopPollingAsync(cancellationToken);
+            }
+            catch
+            {
+                lock (isStartedLock)
+                {
+                    isStarted = false;
+                }
+                throw;
+            }
         }
 
-        async void LoopPolling()
+        async Task StartLoopPollingAsync(CancellationToken cancellationToken)
         {
             try
             {
                 while (!pollCancel.IsCancellationRequested)
-                    await Poll();
+                    await PollAsync(cancellationToken);
 
-                context.SetConnectionState(ConnectionState.Disconnected);
+                await context.SetConnectionStateAsync(ConnectionState.Disconnected, cancellationToken);
                 log.Info("Long-polling stopped.");
             }
             catch (OperationCanceledException)
             {
-                context.SetConnectionState(ConnectionState.Disconnected);
+                await context.SetConnectionStateAsync(ConnectionState.Disconnected, cancellationToken);
                 log.Info("Long-polling stopped.");
             }
             catch (Exception e)
             {
                 log.ErrorException("Long-polling stopped on unexpected exception.", e);
-                context.SetConnectionState(ConnectionState.DisconnectedOnError);
+                await context.SetConnectionStateAsync(ConnectionState.DisconnectedOnError, cancellationToken);
                 throw; // unobserved exception
             }
         }
@@ -100,9 +130,10 @@ namespace Genesys.Bayeux.Client
         public void Dispose()
         {
             pollCancel.Cancel();
+            pollCancel.Dispose();
         }
 
-        async Task Poll()
+        async Task PollAsync(CancellationToken cancellationToken)
         {
             reconnectDelays.ResetIfLastSucceeded();
 
@@ -111,8 +142,8 @@ namespace Genesys.Bayeux.Client
                 if (startInBackground)
                 {
                     startInBackground = false;
-                    await context.Open(pollCancel.Token);
-                    await Handshake(pollCancel.Token);
+                    await context.OpenAsync(pollCancel.Token);
+                    await HandshakeAsync(pollCancel.Token);
                 }
                 else if (transportFailed)
                 {
@@ -122,11 +153,11 @@ namespace Genesys.Bayeux.Client
                     {
                         transportClosed = false;
                         log.Info($"Re-opening transport due to previously failed request.");
-                        await context.Open(pollCancel.Token);
+                        await context.OpenAsync(pollCancel.Token);
                     }
 
                     log.Info($"Re-handshaking due to previously failed request.");
-                    await Handshake(pollCancel.Token);
+                    await HandshakeAsync(pollCancel.Token);
                 }
                 else switch (lastAdvice.reconnect)
                     {
@@ -146,7 +177,7 @@ namespace Genesys.Bayeux.Client
                         case "handshake":
                             log.Info($"Re-handshaking after {lastAdvice.interval} ms on server request.");
                             await Task.Delay(lastAdvice.interval);
-                            await Handshake(pollCancel.Token);
+                            await HandshakeAsync(pollCancel.Token);
                             break;
 
                         case "retry":
@@ -155,13 +186,13 @@ namespace Genesys.Bayeux.Client
                                 log.Info($"Re-connecting after {lastAdvice.interval} ms on server request.");
 
                             await Task.Delay(lastAdvice.interval);
-                            await Connect(pollCancel.Token);
+                            await ConnectAsync(pollCancel.Token);
                             break;
                     }
             }
             catch (HttpRequestException e)
             {
-                context.SetConnectionState(ConnectionState.Connecting);
+                await context.SetConnectionStateAsync(ConnectionState.Connecting, cancellationToken);
                 transportFailed = true;
 
                 var reconnectDelay = reconnectDelays.GetNext();
@@ -173,7 +204,7 @@ namespace Genesys.Bayeux.Client
                 transportFailed = true;
                 transportClosed = e.TransportClosed;
 
-                context.SetConnectionState(ConnectionState.Connecting);
+                await context.SetConnectionStateAsync(ConnectionState.Connecting, cancellationToken);
 
                 var reconnectDelay = reconnectDelays.GetNext();
                 log.WarnException($"Request transport failed. Retrying after {reconnectDelay}", e);
@@ -181,16 +212,16 @@ namespace Genesys.Bayeux.Client
             }
             catch (BayeuxRequestException e)
             {
-                context.SetConnectionState(ConnectionState.Connecting);
+                await context.SetConnectionStateAsync(ConnectionState.Connecting, cancellationToken);
                 log.Error($"Bayeux request failed with error: {e.BayeuxError}");
             }
         }
 
-        async Task Handshake(CancellationToken cancellationToken)
+        async Task HandshakeAsync(CancellationToken cancellationToken)
         {
-            context.SetConnectionState(ConnectionState.Connecting);
+            await context.SetConnectionStateAsync(ConnectionState.Connecting, cancellationToken);
 
-            var response = await context.Request(
+            var response = await context.RequestAsync(
                 new
                 {
                     channel = "/meta/handshake",
@@ -200,14 +231,14 @@ namespace Genesys.Bayeux.Client
                 cancellationToken);
 
             currentConnection = new BayeuxConnection((string)response["clientId"], context);
-            context.SetConnection(currentConnection);
-            context.SetConnectionState(ConnectionState.Connected);
+            await context.SetConnectionAsync(currentConnection, cancellationToken);
+            await context.SetConnectionStateAsync(ConnectionState.Connected, cancellationToken);
             ObtainAdvice(response);
         }
 
-        async Task Connect(CancellationToken cancellationToken)
+        async Task ConnectAsync(CancellationToken cancellationToken)
         {
-            var connectResponse = await currentConnection.Connect(cancellationToken);
+            var connectResponse = await currentConnection.ConnectAsync(cancellationToken);
             ObtainAdvice(connectResponse);
         }
 
@@ -219,13 +250,13 @@ namespace Genesys.Bayeux.Client
                 lastAdvice = adviceToken.ToObject<BayeuxAdvice>();
         }
 
-        #pragma warning disable 0649 // "Field is never assigned to". These fields will be assigned by JSON deserialization
+#pragma warning disable 0649 // "Field is never assigned to". These fields will be assigned by JSON deserialization
         class BayeuxAdvice
         {
             public string reconnect;
             public int interval = 0;
         }
-        #pragma warning restore 0649
+#pragma warning restore 0649
     }
 
     class ReconnectDelays

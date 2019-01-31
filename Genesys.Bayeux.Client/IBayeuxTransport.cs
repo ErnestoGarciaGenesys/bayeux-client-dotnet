@@ -8,7 +8,7 @@ namespace Genesys.Bayeux.Client
 {
     internal interface IBayeuxTransport : IDisposable
     {
-        Task Open(CancellationToken cancellationToken);
-        Task<JObject> Request(IEnumerable<object> requests, CancellationToken cancellationToken);
+        Task OpenAsync(CancellationToken cancellationToken);
+        Task<JObject> RequestAsync(IEnumerable<object> requests, CancellationToken cancellationToken);
     }
 }

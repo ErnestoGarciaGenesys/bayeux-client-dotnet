@@ -1,17 +1,10 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Configuration;
 using System.Diagnostics;
-using System.Net;
 using System.Net.Http;
 using System.Net.WebSockets;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Genesys.Bayeux.Client;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace Genesys.Bayeux.Client.Tests
 {
@@ -36,16 +29,16 @@ namespace Genesys.Bayeux.Client.Tests
             bayeuxClient.ConnectionStateChanged += (e, args) =>
                 Debug.WriteLine($"Bayeux connection state changed to {args.ConnectionState}");
 
-            bayeuxClient.AddSubscriptions("/**");
+            await bayeuxClient.AddSubscriptionsAsync("/**");
 
-            await bayeuxClient.Start();
+            await bayeuxClient.StartAsync();
             // End: README example
 
             using (bayeuxClient)
             {
                 await Delay(60);
             }
-        }        
+        }
 
         [TestMethod]
         public async Task Run_for_a_while_using_WebSocket()
@@ -64,9 +57,9 @@ namespace Genesys.Bayeux.Client.Tests
             bayeuxClient.ConnectionStateChanged += (e, args) =>
                 Debug.WriteLine($"Bayeux connection state changed to {args.ConnectionState}");
 
-            bayeuxClient.AddSubscriptions("/**");
+            await bayeuxClient.AddSubscriptionsAsync("/**");
 
-            await bayeuxClient.Start();
+            await bayeuxClient.StartAsync();
 
             using (bayeuxClient)
             {

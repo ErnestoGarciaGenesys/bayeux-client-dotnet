@@ -5,11 +5,10 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using static Genesys.Bayeux.Client.BayeuxClient;
 
 namespace Genesys.Bayeux.Client
 {
-    class BayeuxConnection
+    public class BayeuxConnection
     {
         readonly string clientId;
         readonly IBayeuxClientContext context;
@@ -21,10 +20,10 @@ namespace Genesys.Bayeux.Client
             this.clientId = clientId;
             this.context = context;
         }
-        
-        public async Task<JObject> Connect(CancellationToken cancellationToken)
+
+        public async Task<JObject> ConnectAsync(CancellationToken cancellationToken = default(CancellationToken))
         {
-            var response = await context.Request(
+            var response = await context.RequestAsync(
                 new
                 {
                     clientId,
@@ -33,28 +32,26 @@ namespace Genesys.Bayeux.Client
                 },
                 cancellationToken);
 
-            context.SetConnectionState(BayeuxClient.ConnectionState.Connected);
+            await context.SetConnectionStateAsync(ConnectionState.Connected, cancellationToken);
 
             return response;
         }
 
-        public Task Disconnect(CancellationToken cancellationToken)
-        {
-            return context.Request(
+        public Task DisconnectAsync(CancellationToken cancellationToken)
+         => context.RequestAsync(
                 new
                 {
                     clientId,
                     channel = "/meta/disconnect",
                 },
                 cancellationToken);
-        }
 
-        public Task DoSubscription(
-            IEnumerable<string> channelsToSubscribe, 
-            IEnumerable<string> channelsToUnsubscribe, 
+        public Task DoSubscriptionAsync(
+            IEnumerable<string> channelsToSubscribe,
+            IEnumerable<string> channelsToUnsubscribe,
             CancellationToken cancellationToken)
         {
-            return context.RequestMany(
+            return context.RequestManyAsync(
                 channelsToSubscribe.Select(channel =>
                     new
                     {

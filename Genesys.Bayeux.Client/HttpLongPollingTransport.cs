@@ -11,26 +11,12 @@ using System.Threading.Tasks;
 
 namespace Genesys.Bayeux.Client
 {
-    public interface IHttpPost
+    internal static class HttpClientExtensions
     {
-        Task<HttpResponseMessage> PostAsync(string requestUri, string jsonContent, CancellationToken cancellationToken);
-    }
-
-    public class HttpClientHttpPost : IHttpPost
-    {
-        readonly HttpClient httpClient;
-
-        public HttpClientHttpPost(HttpClient httpClient)
+        public static Task<HttpResponseMessage> PostJsonAsync(this HttpClient httpClient, string requestUri, string jsonContent, CancellationToken cancellationToken)
         {
-            this.httpClient = httpClient;
-        }
-
-        public Task<HttpResponseMessage> PostAsync(string requestUri, string jsonContent, CancellationToken cancellationToken)
-        {
-            return httpClient.PostAsync(
-                requestUri,
-                new StringContent(jsonContent, Encoding.UTF8, "application/json"),
-                cancellationToken);
+            StringContent content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+            return httpClient.PostAsync(requestUri, content, cancellationToken);
         }
     }
 
@@ -38,31 +24,31 @@ namespace Genesys.Bayeux.Client
     {
         static readonly ILog log = BayeuxClient.log;
 
-        readonly IHttpPost httpPost;
+        readonly HttpClient httpClient;
         readonly string url;
-        readonly Action<IEnumerable<JObject>> eventPublisher;
+        readonly Func<IEnumerable<JObject>, CancellationToken, Task> eventPublisher;
 
         public HttpLongPollingTransport(
-            IHttpPost httpPost, 
+            HttpClient httpClient,
             string url,
-            Action<IEnumerable<JObject>> eventPublisher)
+            Func<IEnumerable<JObject>, CancellationToken, Task> eventPublisher)
         {
-            this.httpPost = httpPost;
+            this.httpClient = httpClient;
             this.url = url;
             this.eventPublisher = eventPublisher;
         }
 
         public void Dispose() { }
 
-        public Task Open(CancellationToken cancellationToken)
-            => Task.FromResult(0);
+        public Task OpenAsync(CancellationToken cancellationToken)
+            => Task.CompletedTask;
 
-        public async Task<JObject> Request(IEnumerable<object> requests, CancellationToken cancellationToken)
+        public async Task<JObject> RequestAsync(IEnumerable<object> requests, CancellationToken cancellationToken)
         {
             var messageStr = JsonConvert.SerializeObject(requests);
             log.Debug(() => $"Posting: {messageStr}");
 
-            var httpResponse = await httpPost.PostAsync(url, messageStr, cancellationToken);
+            var httpResponse = await httpClient.PostJsonAsync(url, messageStr, cancellationToken);
 
             if (!httpResponse.IsSuccessStatusCode)
             {
@@ -74,13 +60,13 @@ namespace Genesys.Bayeux.Client
 
             var responseToken = JToken.ReadFrom(new JsonTextReader(new StreamReader(await httpResponse.Content.ReadAsStreamAsync())));
             log.Debug(() => $"Received: {responseToken.ToString(Formatting.None)}");
-            
+
             IEnumerable<JToken> tokens = responseToken is JArray ?
                 (IEnumerable<JToken>)responseToken :
                 new[] { responseToken };
 
             // https://docs.cometd.org/current/reference/#_delivery
-            // Event messages MAY be sent to the client in the same HTTP response 
+            // Event messages MAY be sent to the client in the same HTTP response
             // as any other message other than a /meta/handshake response.
             JObject responseObj = null;
             var events = new List<JObject>();
@@ -99,7 +85,7 @@ namespace Genesys.Bayeux.Client
                     events.Add(message);
             }
 
-            eventPublisher(events);
+            await eventPublisher(events, cancellationToken);
 
             return responseObj;
         }

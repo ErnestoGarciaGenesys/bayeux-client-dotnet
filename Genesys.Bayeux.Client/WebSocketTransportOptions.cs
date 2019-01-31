@@ -3,6 +3,8 @@ using System;
 using System.Collections.Generic;
 using System.Net.WebSockets;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Genesys.Bayeux.Client
 {
@@ -15,14 +17,14 @@ namespace Genesys.Bayeux.Client
         /// Timeout for responses to be received. Must be greater than the expected Connect timeout. (Default is 65 seconds).
         /// </summary>
         public TimeSpan? ResponseTimeout { get; set; }
-        
-        internal WebSocketTransport Build(Action<IEnumerable<JObject>> eventPublisher)
+
+        internal WebSocketTransport Build(Func<IEnumerable<JObject>, CancellationToken, Task> eventPublisher)
         {
             return new WebSocketTransport(
                 WebSocketFactory ?? (() => SystemClientWebSocket.CreateClientWebSocket()),
                 Uri ?? throw new Exception("Please set Uri."),
                 ResponseTimeout ?? TimeSpan.FromSeconds(65),
                 eventPublisher);
-        }        
+        }
     }
 }

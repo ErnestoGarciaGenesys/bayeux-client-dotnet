@@ -5,12 +5,12 @@
     <!-- netstandard1.1;net45 - Minimum for System.Net.Http.HttpClient -->
     <!-- netstandard2.0;net20 - Minimum for System.Diagnostics.TraceSource -->
     <!-- netstandard2.0;net452 - Minimum versions for LibLog included code files -->
-    <TargetFrameworks>netstandard2.0;net452</TargetFrameworks>
+    <TargetFramework>netstandard2.0</TargetFramework>
     <AssemblyName>Genesys.Bayeux.Client</AssemblyName>
     <RootNamespace>Genesys.Bayeux.Client</RootNamespace>
     <Company>Genesys</Company>
     <Product>Genesys PureEngage</Product>
-    <Version>0.0.4</Version>
+    <Version>0.1.0</Version>
     <Description>This library provides a client for receiving events from a Bayeux server, through the HTTP long-polling transport, or WebSockets. It provides convenient async methods.</Description>
     <RepositoryUrl>https://github.com/ErnestoGarciaGenesys/bayeux-client-dotnet</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
@@ -19,26 +19,15 @@
     <AssemblyVersion>0.0.4.0</AssemblyVersion>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
-    <DebugType>full</DebugType>
-    <DebugSymbols>true</DebugSymbols>
-  </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="LibLog" Version="5.0.2">
+    <PackageReference Include="LibLog" Version="5.0.5">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
-    
-    <!-- Needed for LibLog included source code to compile -->
-    <PackageReference Include="Microsoft.CSharp" Version="4.4.0" />
-    
-    <PackageReference Include="Newtonsoft.Json" Version="11.0.2" />
+    <PackageReference Include="Newtonsoft.Json" Version="12.0.1" />
+    <PackageReference Include="System.Collections.Immutable" Version="1.5.0" />
     <PackageReference Include="System.Net.WebSockets.Client.Managed" Version="1.0.22" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(TargetFramework)'=='net452'">
-    <Reference Include="System.Net.Http" />
   </ItemGroup>
 
 </Project>
