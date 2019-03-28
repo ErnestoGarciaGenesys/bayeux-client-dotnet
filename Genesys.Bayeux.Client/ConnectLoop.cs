@@ -54,8 +54,8 @@ namespace Genesys.Bayeux.Client
             if (startLatch.AlreadyRun())
                 throw new Exception("Already started.");
 
-            await context.Open(cancellationToken);
-            await Handshake(cancellationToken);
+            await context.Open(cancellationToken).ConfigureAwait(false);
+            await Handshake(cancellationToken).ConfigureAwait(false);
 
             // A way to test the re-handshake with a real server is to put some delay here, between the first handshake response,
             // and the first try to connect. That will cause an "Invalid client id" response, with an advice of reconnect=handshake.
@@ -79,7 +79,7 @@ namespace Genesys.Bayeux.Client
             try
             {
                 while (!pollCancel.IsCancellationRequested)
-                    await Poll();
+                    await Poll().ConfigureAwait(false);
 
                 context.SetConnectionState(ConnectionState.Disconnected);
                 log.Info("Long-polling stopped.");
@@ -111,8 +111,8 @@ namespace Genesys.Bayeux.Client
                 if (startInBackground)
                 {
                     startInBackground = false;
-                    await context.Open(pollCancel.Token);
-                    await Handshake(pollCancel.Token);
+                    await context.Open(pollCancel.Token).ConfigureAwait(false);
+                    await Handshake(pollCancel.Token).ConfigureAwait(false);
                 }
                 else if (transportFailed)
                 {
@@ -122,11 +122,11 @@ namespace Genesys.Bayeux.Client
                     {
                         transportClosed = false;
                         log.Info($"Re-opening transport due to previously failed request.");
-                        await context.Open(pollCancel.Token);
+                        await context.Open(pollCancel.Token).ConfigureAwait(false);
                     }
 
                     log.Info($"Re-handshaking due to previously failed request.");
-                    await Handshake(pollCancel.Token);
+                    await Handshake(pollCancel.Token).ConfigureAwait(false);
                 }
                 else switch (lastAdvice.reconnect)
                     {
@@ -145,8 +145,8 @@ namespace Genesys.Bayeux.Client
 
                         case "handshake":
                             log.Info($"Re-handshaking after {lastAdvice.interval} ms on server request.");
-                            await Task.Delay(lastAdvice.interval);
-                            await Handshake(pollCancel.Token);
+                            await Task.Delay(lastAdvice.interval).ConfigureAwait(false);
+                            await Handshake(pollCancel.Token).ConfigureAwait(false);
                             break;
 
                         case "retry":
@@ -154,8 +154,8 @@ namespace Genesys.Bayeux.Client
                             if (lastAdvice.interval > 0)
                                 log.Info($"Re-connecting after {lastAdvice.interval} ms on server request.");
 
-                            await Task.Delay(lastAdvice.interval);
-                            await Connect(pollCancel.Token);
+                            await Task.Delay(lastAdvice.interval).ConfigureAwait(false);
+                            await Connect(pollCancel.Token).ConfigureAwait(false);
                             break;
                     }
             }
@@ -166,7 +166,7 @@ namespace Genesys.Bayeux.Client
 
                 var reconnectDelay = reconnectDelays.GetNext();
                 log.WarnException($"HTTP request failed. Rehandshaking after {reconnectDelay}", e);
-                await Task.Delay(reconnectDelay);
+                await Task.Delay(reconnectDelay).ConfigureAwait(false);
             }
             catch (BayeuxTransportException e)
             {
@@ -177,7 +177,7 @@ namespace Genesys.Bayeux.Client
 
                 var reconnectDelay = reconnectDelays.GetNext();
                 log.WarnException($"Request transport failed. Retrying after {reconnectDelay}", e);
-                await Task.Delay(reconnectDelay);
+                await Task.Delay(reconnectDelay).ConfigureAwait(false);
             }
             catch (BayeuxRequestException e)
             {
@@ -197,7 +197,7 @@ namespace Genesys.Bayeux.Client
                     version = "1.0",
                     supportedConnectionTypes = new[] { connectionType },
                 },
-                cancellationToken);
+                cancellationToken).ConfigureAwait(false);
 
             currentConnection = new BayeuxConnection((string)response["clientId"], context);
             context.SetConnection(currentConnection);
@@ -207,7 +207,7 @@ namespace Genesys.Bayeux.Client
 
         async Task Connect(CancellationToken cancellationToken)
         {
-            var connectResponse = await currentConnection.Connect(cancellationToken);
+            var connectResponse = await currentConnection.Connect(cancellationToken).ConfigureAwait(false);
             ObtainAdvice(connectResponse);
         }
 

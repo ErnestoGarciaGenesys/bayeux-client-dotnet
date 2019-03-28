@@ -17,7 +17,7 @@ namespace Genesys.Bayeux.Client.Tests
         {
             var cancel = new CancellationTokenSource();
             cancel.Cancel();
-            await new HttpClient().GetAsync("http://www.google.com", cancel.Token);
+            await new HttpClient().GetAsync("http://www.google.com", cancel.Token).ConfigureAwait(false);
         }
 
         [TestMethod]
@@ -31,7 +31,7 @@ namespace Genesys.Bayeux.Client.Tests
             {
                 Debug.WriteLine($"Inside task: Task.Id = {Task.CurrentId}");
                 Debug.WriteLine($"Inside task: SynchronizationContext.Current = {SynchronizationContext.Current}");
-            });
+            }).ConfigureAwait(false);
         }
 
         [TestMethod]
@@ -67,7 +67,7 @@ namespace Genesys.Bayeux.Client.Tests
         {
             try
             {
-                await Task.Run(() => throw new Exception("Test"));
+                await Task.Run(() => throw new Exception("Test")).ConfigureAwait(false);
             }
             catch (Exception e)
             {
@@ -78,7 +78,7 @@ namespace Genesys.Bayeux.Client.Tests
 
         async Task ThrowExcAsync()
         {
-            await Task.Run(() => throw new Exception("Test"));
+            await Task.Run(() => throw new Exception("Test")).ConfigureAwait(false);
         }
 
         [TestMethod]
@@ -86,7 +86,7 @@ namespace Genesys.Bayeux.Client.Tests
         {
             try
             {
-                await ThrowExcAsync();
+                await ThrowExcAsync().ConfigureAwait(false);
             }
             catch
             {
@@ -108,14 +108,14 @@ namespace Genesys.Bayeux.Client.Tests
 
             Task completedTask = await Task.WhenAny(
                 Task.Delay(TimeSpan.FromSeconds(60)),
-                Task.Delay(TimeSpan.FromSeconds(30), cancellationSource.Token));
+                Task.Delay(TimeSpan.FromSeconds(30), cancellationSource.Token)).ConfigureAwait(false);
             
             Assert.IsTrue(completedTask.IsCanceled);
         }
 
         async Task PleaseThrow()
         {
-            await Task.FromResult(0);
+            await Task.FromResult(0).ConfigureAwait(false);
             throw new OperationCanceledException();
         }
 
@@ -123,20 +123,20 @@ namespace Genesys.Bayeux.Client.Tests
         [ExpectedException(typeof(OperationCanceledException))]
         public async Task Check_exception_thrown_on_cancel()
         {
-            await PleaseThrow();
+            await PleaseThrow().ConfigureAwait(false);
         }
 
         async Task PleaseThrow2(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await Task.Delay(0);
+            await Task.Delay(0).ConfigureAwait(false);
         }
 
         [TestMethod]
         [ExpectedException(typeof(OperationCanceledException))]
         public async Task Check_exception_thrown_on_cancel_with_cancellationToken_as_method_parameter()
         {
-            await PleaseThrow2(new CancellationToken(canceled: true));
+            await PleaseThrow2(new CancellationToken(canceled: true)).ConfigureAwait(false);
         }
 
         [TestMethod]
@@ -146,7 +146,7 @@ namespace Genesys.Bayeux.Client.Tests
             var cancellationToken = new CancellationToken(canceled: true);
             await Task.Run(
                 () => PleaseThrow2(cancellationToken), 
-                cancellationToken);
+                cancellationToken).ConfigureAwait(false);
         }
     }
 }
