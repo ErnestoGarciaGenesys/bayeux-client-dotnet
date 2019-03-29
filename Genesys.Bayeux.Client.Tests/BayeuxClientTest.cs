@@ -108,7 +108,7 @@ namespace Genesys.Bayeux.Client.Tests
                 ;
 
             var bayeuxClient = new BayeuxClient(
-                new HttpLongPollingTransportOptions() { HttpClient = new HttpClient(mock.Object), Uri = Url }, 
+                new HttpLongPollingTransportOptions(new HttpClient(mock.Object), Url), 
                 reconnectDelays: new[] { TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2) });
 
             using (bayeuxClient)
@@ -133,7 +133,7 @@ namespace Genesys.Bayeux.Client.Tests
                 ;
 
             var bayeuxClient = new BayeuxClient(
-                new HttpLongPollingTransportOptions() { HttpClient = new HttpClient(mock.Object), Uri = Url },
+                new HttpLongPollingTransportOptions(new HttpClient(mock.Object), Url),
                 reconnectDelays: new[] { TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2) });
 
             using (bayeuxClient)
@@ -170,7 +170,7 @@ namespace Genesys.Bayeux.Client.Tests
                         .ContinueWith(t => BuildBayeuxResponse(successfulConnectResponse)));
 
             var bayeuxClient = new BayeuxClient(
-                new HttpLongPollingTransportOptions() { HttpClient = new HttpClient(mock.Object), Uri = Url },
+                new HttpLongPollingTransportOptions(new HttpClient(mock.Object), Url),
                 reconnectDelays: new[] { TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2) });
 
             using (bayeuxClient)
@@ -256,7 +256,7 @@ namespace Genesys.Bayeux.Client.Tests
         public async Task Subscribe_throws_exception_when_not_connected()
         {
             var httpPoster = new Mock<IHttpPost>();
-            var bayeuxClient = new BayeuxClient(new HttpLongPollingTransportOptions() { HttpPost = httpPoster.Object, Uri = "none" });
+            var bayeuxClient = new BayeuxClient(new HttpLongPollingTransportOptions(httpPoster.Object, "none"));
             await bayeuxClient.Subscribe("dummy").ConfigureAwait(false);
         }
 
@@ -265,7 +265,7 @@ namespace Genesys.Bayeux.Client.Tests
         public async Task Unsubscribe_throws_exception_when_not_connected()
         {
             var httpPoster = new Mock<IHttpPost>();
-            var bayeuxClient = new BayeuxClient(new HttpLongPollingTransportOptions() { HttpPost = httpPoster.Object, Uri = "none" });
+            var bayeuxClient = new BayeuxClient(new HttpLongPollingTransportOptions(httpPoster.Object, "none"));
             await bayeuxClient.Unsubscribe("dummy").ConfigureAwait(false);
         }
 
@@ -273,7 +273,7 @@ namespace Genesys.Bayeux.Client.Tests
         public void AddSubscriptions_succeeds_when_not_connected()
         {
             var httpPoster = new Mock<IHttpPost>();
-            var bayeuxClient = new BayeuxClient(new HttpLongPollingTransportOptions() { HttpPost = httpPoster.Object, Uri = "none" });
+            var bayeuxClient = new BayeuxClient(new HttpLongPollingTransportOptions(httpPoster.Object, "none"));
             bayeuxClient.AddSubscriptions("dummy");
         }
 
@@ -281,17 +281,13 @@ namespace Genesys.Bayeux.Client.Tests
         public void RemoveSubscriptions_succeeds_when_not_connected()
         {
             var httpPoster = new Mock<IHttpPost>();
-            var bayeuxClient = new BayeuxClient(new HttpLongPollingTransportOptions() { HttpPost = httpPoster.Object, Uri = "none" });
+            var bayeuxClient = new BayeuxClient(new HttpLongPollingTransportOptions(httpPoster.Object, "none"));
             bayeuxClient.RemoveSubscriptions("dummy");
         }
 
         BayeuxClient CreateHttpBayeuxClient(HttpClient httpClient = null, string uri = Url)
         {
-            return new BayeuxClient(new HttpLongPollingTransportOptions()
-            {
-                HttpClient = httpClient,
-                Uri = uri,
-            });
+            return new BayeuxClient(new HttpLongPollingTransportOptions(httpClient, uri));
         }
     }
 }

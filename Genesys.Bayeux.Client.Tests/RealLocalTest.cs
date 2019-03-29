@@ -1,17 +1,10 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Configuration;
 using System.Diagnostics;
-using System.Net;
 using System.Net.Http;
 using System.Net.WebSockets;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Genesys.Bayeux.Client;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace Genesys.Bayeux.Client.Tests
 {
@@ -24,11 +17,7 @@ namespace Genesys.Bayeux.Client.Tests
             // Begin: README example
             var httpClient = new HttpClient();
             var bayeuxClient = new BayeuxClient(
-                new HttpLongPollingTransportOptions()
-                {
-                    HttpClient = httpClient,
-                    Uri = "http://localhost:8080/bayeux/",
-                });
+                new HttpLongPollingTransportOptions(httpClient, "http://localhost:8080/bayeux/"));
 
             bayeuxClient.EventReceived += (e, args) =>
                 Debug.WriteLine($"Event received on channel {args.Channel} with data\n{args.Data}");
