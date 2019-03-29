@@ -16,13 +16,21 @@ namespace Genesys.Bayeux.Client
         }
         public HttpLongPollingTransportOptions(IHttpPost httpPost, string uri)
         {
-            this.HttpPost = httpPost;
+            if (string.IsNullOrWhiteSpace(uri))
+            {
+                throw new ArgumentNullException(nameof(uri), "Must provide a valid Uri");
+            }
+            this.HttpPost = httpPost ?? throw new ArgumentNullException(nameof(httpPost),"HttpPost cannot be null");
             Uri = uri;
         }
 
         public HttpLongPollingTransportOptions(HttpClient client, string uri)
         {
-            HttpClient = client;
+            if (string.IsNullOrWhiteSpace(uri))
+            {
+                throw new ArgumentNullException(nameof(uri), "Must provide a valid Uri");
+            }
+            HttpClient = client ?? throw new ArgumentNullException(nameof(client), "HttpClient cannot be null");
             Uri = uri;
         }
 
