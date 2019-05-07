@@ -31,7 +31,7 @@ namespace Genesys.Bayeux.Client
                     channel = "/meta/connect",
                     connectionType = "long-polling",
                 },
-                cancellationToken);
+                cancellationToken).ConfigureAwait(false);
 
             context.SetConnectionState(BayeuxClient.ConnectionState.Connected);
 

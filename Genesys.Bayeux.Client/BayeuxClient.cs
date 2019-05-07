@@ -135,7 +135,7 @@ namespace Genesys.Bayeux.Client
 
             var connection = Interlocked.Exchange(ref currentConnection, null);
             if (connection != null)
-                await connection.Disconnect(cancellationToken);
+                await connection.Disconnect(cancellationToken).ConfigureAwait(false);
         }
 
         public void Dispose()
@@ -279,7 +279,7 @@ namespace Genesys.Bayeux.Client
             }
             else
             {
-                await connection.DoSubscription(channelsToSubscribe, channelsToUnsubscribe, cancellationToken);
+                await connection.DoSubscription(channelsToSubscribe, channelsToUnsubscribe, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -301,7 +301,7 @@ namespace Genesys.Bayeux.Client
         {
             // https://docs.cometd.org/current/reference/#_messages
             // All Bayeux messages SHOULD be encapsulated in a JSON encoded array so that multiple messages may be transported together
-            var responseObj = await transport.Request(requests, cancellationToken);
+            var responseObj = await transport.Request(requests, cancellationToken).ConfigureAwait(false);
 
             var response = responseObj.ToObject<BayeuxResponse>();
 

@@ -38,12 +38,12 @@ namespace Genesys.Bayeux.Client.Tests
 
             bayeuxClient.AddSubscriptions("/**");
 
-            await bayeuxClient.Start();
+            await bayeuxClient.Start().ConfigureAwait(false);
             // End: README example
 
             using (bayeuxClient)
             {
-                await Delay(60);
+                await Delay(60).ConfigureAwait(false);
             }
         }        
 
@@ -66,11 +66,11 @@ namespace Genesys.Bayeux.Client.Tests
 
             bayeuxClient.AddSubscriptions("/**");
 
-            await bayeuxClient.Start();
+            await bayeuxClient.Start().ConfigureAwait(false);
 
             using (bayeuxClient)
             {
-                await Delay(60);
+                await Delay(60).ConfigureAwait(false);
             }
         }
 
@@ -90,17 +90,17 @@ namespace Genesys.Bayeux.Client.Tests
             using (var webSocket = SystemClientWebSocket.CreateClientWebSocket())
             {
                 Debug.WriteLine("Connecting");
-                await webSocket.ConnectAsync(new Uri("ws://localhost:5088/bayeux/"), CancellationToken.None);
-                await Delay(10);
+                await webSocket.ConnectAsync(new Uri("ws://localhost:5088/bayeux/"), CancellationToken.None).ConfigureAwait(false);
+                await Delay(10).ConfigureAwait(false);
                 //Debug.WriteLine("Sending");
                 //await webSocket.SendAsync(new ArraySegment<byte>(Encoding.UTF8.GetBytes("hola")), WebSocketMessageType.Text, endOfMessage: true, cancellationToken: CancellationToken.None);
                 //await Delay(10);
                 Debug.WriteLine("Closing");
-                await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
-                await Delay(5);
+                await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None).ConfigureAwait(false);
+                await Delay(5).ConfigureAwait(false);
                 Debug.WriteLine("Connecting again");
-                await webSocket.ConnectAsync(new Uri("ws://localhost:5088/bayeux/"), CancellationToken.None);
-                await Delay(5);
+                await webSocket.ConnectAsync(new Uri("ws://localhost:5088/bayeux/"), CancellationToken.None).ConfigureAwait(false);
+                await Delay(5).ConfigureAwait(false);
                 Debug.WriteLine("End");
             }
         }
@@ -108,7 +108,7 @@ namespace Genesys.Bayeux.Client.Tests
         async Task Delay(int seconds)
         {
             Debug.WriteLine($"Waiting {seconds}s...");
-            await Task.Delay(TimeSpan.FromSeconds(seconds));
+            await Task.Delay(TimeSpan.FromSeconds(seconds)).ConfigureAwait(false);
         }
     }
 }

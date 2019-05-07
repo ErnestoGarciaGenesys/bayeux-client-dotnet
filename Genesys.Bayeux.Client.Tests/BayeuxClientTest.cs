@@ -41,7 +41,7 @@ namespace Genesys.Bayeux.Client.Tests
 
             using (var bayeuxClient = CreateHttpBayeuxClient(httpClient))
             {
-                await bayeuxClient.Start();
+                await bayeuxClient.Start().ConfigureAwait(false);
             }
         }
 
@@ -78,7 +78,7 @@ namespace Genesys.Bayeux.Client.Tests
 
             using (var bayeuxClient = CreateHttpBayeuxClient(httpClient))
             {
-                await bayeuxClient.Start();
+                await bayeuxClient.Start().ConfigureAwait(false);
             }
 
             mock.Protected().As<IHttpMessageHandlerProtected>()
@@ -113,8 +113,8 @@ namespace Genesys.Bayeux.Client.Tests
 
             using (bayeuxClient)
             {
-                await bayeuxClient.Start();
-                await Task.Delay(TimeSpan.FromSeconds(20));
+                await bayeuxClient.Start().ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
             }
         }
 
@@ -139,7 +139,7 @@ namespace Genesys.Bayeux.Client.Tests
             using (bayeuxClient)
             {
                 bayeuxClient.StartInBackground();
-                await Task.Delay(TimeSpan.FromSeconds(20));
+                await Task.Delay(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
             }
         }
 
@@ -176,8 +176,8 @@ namespace Genesys.Bayeux.Client.Tests
             using (bayeuxClient)
             {
                 bayeuxClient.AddSubscriptions("/mychannel");
-                await bayeuxClient.Start();
-                await Task.Delay(TimeSpan.FromSeconds(2));
+                await bayeuxClient.Start().ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
             }
 
             Assert.AreEqual(1, subscriptionCount);
@@ -257,7 +257,7 @@ namespace Genesys.Bayeux.Client.Tests
         {
             var httpPoster = new Mock<IHttpPost>();
             var bayeuxClient = new BayeuxClient(new HttpLongPollingTransportOptions() { HttpPost = httpPoster.Object, Uri = "none" });
-            await bayeuxClient.Subscribe("dummy");
+            await bayeuxClient.Subscribe("dummy").ConfigureAwait(false);
         }
 
         [TestMethod]
@@ -266,7 +266,7 @@ namespace Genesys.Bayeux.Client.Tests
         {
             var httpPoster = new Mock<IHttpPost>();
             var bayeuxClient = new BayeuxClient(new HttpLongPollingTransportOptions() { HttpPost = httpPoster.Object, Uri = "none" });
-            await bayeuxClient.Unsubscribe("dummy");
+            await bayeuxClient.Unsubscribe("dummy").ConfigureAwait(false);
         }
 
         [TestMethod]
