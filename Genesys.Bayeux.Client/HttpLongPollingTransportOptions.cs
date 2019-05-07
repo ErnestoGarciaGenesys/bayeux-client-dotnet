@@ -9,6 +9,33 @@ namespace Genesys.Bayeux.Client
 {
     public class HttpLongPollingTransportOptions
     {
+        [Obsolete("Please use either the HttpLongPollingTransportOptions(IHttpPost httpPost, string uri) or HttpLongPollingTransportOptions(HttpClient client, string uri) constructors.")]
+        public HttpLongPollingTransportOptions()
+        {
+            
+        }
+        public HttpLongPollingTransportOptions(IHttpPost httpPost, string uri)
+        {
+            if (string.IsNullOrWhiteSpace(uri))
+            {
+                throw new ArgumentNullException(nameof(uri), "Must provide a valid Uri");
+            }
+            this.HttpPost = httpPost ?? throw new ArgumentNullException(nameof(httpPost),"HttpPost cannot be null");
+            Uri = uri;
+        }
+
+        public HttpLongPollingTransportOptions(HttpClient client, string uri)
+        {
+            if (string.IsNullOrWhiteSpace(uri))
+            {
+                throw new ArgumentNullException(nameof(uri), "Must provide a valid Uri");
+            }
+            HttpClient = client ?? throw new ArgumentNullException(nameof(client), "HttpClient cannot be null");
+            Uri = uri;
+        }
+
+        private IHttpPost _httpPost;
+        private HttpClient _httpClient;
         /// <summary>
         /// An HTTP POST implementation. It should not do HTTP pipelining (rarely done for POSTs anyway).
         /// See https://docs.cometd.org/current/reference/#_two_connection_operation.
@@ -21,7 +48,10 @@ namespace Genesys.Bayeux.Client
         /// Enables the implementation of retry policies; useful for servers that may occasionally need a session refresh. Retries are general not supported by HttpClient, as (for some versions) SendAsync disposes the content of HttpRequestMessage. This means that a failed SendAsync call can't be retried, as the HttpRequestMessage can't be reused.
         /// </para>
         /// </summary>
-        public IHttpPost HttpPost;
+        public IHttpPost HttpPost {
+            get => _httpPost;
+            set => _httpPost = value;
+        }
 
         /// <summary>
         /// HttpClient to use.
@@ -30,7 +60,11 @@ namespace Genesys.Bayeux.Client
         /// Set this property or HttpPost, but not both.
         /// </para>
         /// </summary>
-        public HttpClient HttpClient;
+        public  HttpClient HttpClient
+        {
+            get => _httpClient;
+            set => _httpClient = value;
+        }
 
         public string Uri { get; set; }
 
@@ -48,8 +82,6 @@ namespace Genesys.Bayeux.Client
             }
             else
             {
-                if (HttpClient != null)
-                    throw new Exception("Set HttpPost or HttpClient, but not both.");
 
                 return new HttpLongPollingTransport(
                     HttpPost,

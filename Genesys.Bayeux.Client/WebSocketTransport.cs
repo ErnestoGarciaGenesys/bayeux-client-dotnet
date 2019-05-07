@@ -64,7 +64,7 @@ namespace Genesys.Bayeux.Client
             if (receiverLoopCancel != null)
             {
                 receiverLoopCancel.Cancel();
-                await receiverLoopTask;
+                await receiverLoopTask.ConfigureAwait(false);
             }
 
             if (webSocket != null)
@@ -74,7 +74,7 @@ namespace Genesys.Bayeux.Client
 
             try
             {
-                await webSocket.ConnectAsync(uri, cancellationToken);
+                await webSocket.ConnectAsync(uri, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception e)
             {
@@ -92,7 +92,7 @@ namespace Genesys.Bayeux.Client
             try
             {
                 while (!cancelToken.IsCancellationRequested)
-                    HandleReceivedMessage(await ReceiveMessage(cancelToken));
+                    HandleReceivedMessage(await ReceiveMessage(cancelToken).ConfigureAwait(false));
 
                 fault = null;
             }
@@ -138,7 +138,7 @@ namespace Genesys.Bayeux.Client
             WebSocketReceiveResult result = null;
             do
             {
-                result = await webSocket.ReceiveAsync(buffer, cancellationToken);
+                result = await webSocket.ReceiveAsync(buffer, cancellationToken).ConfigureAwait(false);
                 stream.Write(buffer.Array, buffer.Offset, result.Count);
             }
             while (!result.EndOfMessage);
@@ -200,12 +200,12 @@ namespace Genesys.Bayeux.Client
             
             var messageStr = JsonConvert.SerializeObject(requestsJArray);
             log.Debug(() => $"Posting: {messageStr}");
-            await SendAsync(messageStr, cancellationToken);
+            await SendAsync(messageStr, cancellationToken).ConfigureAwait(false);
 
             var timeoutTask = Task.Delay(responseTimeout, cancellationToken);
             Task completedTask = await Task.WhenAny(
                 Task.WhenAll(responseTasks.Select(t => t.Task)),
-                timeoutTask);
+                timeoutTask).ConfigureAwait(false);
 
             foreach (var id in messageIds)
                 pendingRequests.TryRemove(id, out var _);
@@ -217,7 +217,7 @@ namespace Genesys.Bayeux.Client
             }
             else
             {
-                return await responseTasks.First().Task;
+                return await responseTasks.First().Task.ConfigureAwait(false);
             }
         }
 
@@ -230,7 +230,7 @@ namespace Genesys.Bayeux.Client
                     bytes,
                     WebSocketMessageType.Text,
                     endOfMessage: true,
-                    cancellationToken: cancellationToken);
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
             }
             catch (Exception e)
             {

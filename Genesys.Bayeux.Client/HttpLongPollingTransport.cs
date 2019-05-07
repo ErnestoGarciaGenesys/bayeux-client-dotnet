@@ -62,17 +62,17 @@ namespace Genesys.Bayeux.Client
             var messageStr = JsonConvert.SerializeObject(requests);
             log.Debug(() => $"Posting: {messageStr}");
 
-            var httpResponse = await httpPost.PostAsync(url, messageStr, cancellationToken);
+            var httpResponse = await httpPost.PostAsync(url, messageStr, cancellationToken).ConfigureAwait(false);
 
             if (!httpResponse.IsSuccessStatusCode)
             {
-                var responseStr = await httpResponse.Content.ReadAsStringAsync();
+                var responseStr = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
                 log.Debug(() => $"Received: {responseStr}");
             }
 
             httpResponse.EnsureSuccessStatusCode();
 
-            var responseToken = JToken.ReadFrom(new JsonTextReader(new StreamReader(await httpResponse.Content.ReadAsStreamAsync())));
+            var responseToken = JToken.ReadFrom(new JsonTextReader(new StreamReader(await httpResponse.Content.ReadAsStreamAsync().ConfigureAwait(false))));
             log.Debug(() => $"Received: {responseToken.ToString(Formatting.None)}");
             
             IEnumerable<JToken> tokens = responseToken is JArray ?
