@@ -52,7 +52,9 @@ You may also provide your own custom logger implementation by calling:
 Genesys.Bayeux.Client.Logging.LogProvider.SetCurrentLogProvider(<My ILogProvider implementation>);
 ~~~
 
-If none of these are available,  System.Diagnostics.TraceSource will be used. (See [how to configure tracing](https://docs.microsoft.com/en-us/dotnet/framework/network-programming/how-to-configure-network-tracing)).
+If none of these are available,  System.Diagnostics.TraceSource will be used.
+
+For troubleshooting networking issues, you may want to enable [.NET network tracing](https://docs.microsoft.com/en-us/dotnet/framework/network-programming/how-to-configure-network-tracing).
 
 ## Features
 
