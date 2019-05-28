@@ -70,7 +70,7 @@ namespace Genesys.Bayeux.Client.Tests
 
             using (bayeuxClient)
             {
-                await Delay(60);
+                await Delay(120);
             }
         }
 

@@ -12,6 +12,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 using Moq.Protected;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace Genesys.Bayeux.Client.Tests
 {
@@ -140,6 +141,37 @@ namespace Genesys.Bayeux.Client.Tests
             {
                 bayeuxClient.StartInBackground();
                 await Task.Delay(TimeSpan.FromSeconds(20));
+            }
+        }
+
+        [TestMethod]
+        public async Task Reconnection_on_TimeoutException()
+        {
+            var transportMock = new Mock<IBayeuxTransport>();
+            transportMock
+                .SetupSequence(t => t.Request(It.IsAny<IEnumerable<object>>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(JObject.FromObject(successfulHandshakeResponse))
+                .ReturnsAsync(JObject.FromObject(successfulConnectResponse))
+                .ThrowsAsync(new TimeoutException("mock raising exception"))
+                .ReturnsAsync(JObject.FromObject(successfulHandshakeResponse))
+                .ReturnsIndefinitely(() =>
+                  Task.Delay(TimeSpan.FromSeconds(5))
+                      .ContinueWith(t => JObject.FromObject(successfulConnectResponse)))
+                ;
+
+            var bayeuxClient = new BayeuxClient(
+                transportMock.Object,
+                "test",
+                reconnectDelays: new[] { TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2) });
+
+            BayeuxClient.ConnectionState? connectionState = null;
+            bayeuxClient.ConnectionStateChanged += (s, args) => connectionState = args.ConnectionState;
+
+            using (bayeuxClient)
+            {
+                await bayeuxClient.Start();
+                await Task.Delay(TimeSpan.FromSeconds(20));
+                Assert.AreEqual(BayeuxClient.ConnectionState.Connected, connectionState);
             }
         }
 

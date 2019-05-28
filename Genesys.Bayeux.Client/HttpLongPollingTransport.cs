@@ -40,15 +40,17 @@ namespace Genesys.Bayeux.Client
 
         readonly IHttpPost httpPost;
         readonly string url;
-        readonly Action<IEnumerable<JObject>> eventPublisher;
+        Action<IEnumerable<JObject>> eventPublisher;
 
         public HttpLongPollingTransport(
             IHttpPost httpPost, 
-            string url,
-            Action<IEnumerable<JObject>> eventPublisher)
+            string url)
         {
             this.httpPost = httpPost;
             this.url = url;
+        }
+
+        public void SetEventPublisher(Action<IEnumerable<JObject>> eventPublisher) {
             this.eventPublisher = eventPublisher;
         }
 

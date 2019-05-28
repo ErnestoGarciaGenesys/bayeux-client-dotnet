@@ -89,12 +89,6 @@ namespace Genesys.Bayeux.Client
                 context.SetConnectionState(ConnectionState.Disconnected);
                 log.Info("Long-polling stopped.");
             }
-            catch (Exception e)
-            {
-                log.ErrorException("Long-polling stopped on unexpected exception.", e);
-                context.SetConnectionState(ConnectionState.DisconnectedOnError);
-                throw; // unobserved exception
-            }
         }
 
         public void Dispose()
@@ -183,6 +177,21 @@ namespace Genesys.Bayeux.Client
             {
                 context.SetConnectionState(ConnectionState.Connecting);
                 log.Error($"Bayeux request failed with error: {e.BayeuxError}");
+            }
+            catch (Exception e)
+            {
+                var canceledExc = e as OperationCanceledException;
+                if (canceledExc != null && canceledExc.CancellationToken == pollCancel.Token)
+                    throw;
+
+                transportFailed = true;
+                transportClosed = true;
+
+                context.SetConnectionState(ConnectionState.Connecting);
+
+                var reconnectDelay = reconnectDelays.GetNext();
+                log.WarnException($"Unexpected exception. Retrying after {reconnectDelay}", e);
+                await Task.Delay(reconnectDelay);
             }
         }
 

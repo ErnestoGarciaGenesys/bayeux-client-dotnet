@@ -13,7 +13,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using static Genesys.Bayeux.Client.Logging.LogProvider;
 
-[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Tests")]
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Genesys.Bayeux.Client.Tests")]
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("DynamicProxyGenAssembly2")]
 
 namespace Genesys.Bayeux.Client
 {
@@ -51,27 +52,40 @@ namespace Genesys.Bayeux.Client
         /// When a request results in network errors, reconnection trials will be delayed based on the 
         /// values passed here. The last element of the collection will be re-used indefinitely.
         /// </param>
+        internal BayeuxClient(
+            IBayeuxTransport transport,
+            string connectionType,
+            IEnumerable<TimeSpan> reconnectDelays = null,
+            TaskScheduler eventTaskScheduler = null)
+        {
+            this.transport = transport;
+            transport.SetEventPublisher(PublishEvents);
+            this.eventTaskScheduler = ChooseEventTaskScheduler(eventTaskScheduler);
+            this.connectLoop = new ConnectLoop(connectionType, reconnectDelays, this);
+            this.subscriber = new Subscriber(this);
+        }
+
         public BayeuxClient(
             HttpLongPollingTransportOptions options,
             IEnumerable<TimeSpan> reconnectDelays = null,
             TaskScheduler eventTaskScheduler = null)
-        {
-            this.transport = options.Build(PublishEvents);
-            this.eventTaskScheduler = ChooseEventTaskScheduler(eventTaskScheduler);
-            this.connectLoop = new ConnectLoop("long-polling", reconnectDelays, this);
-            this.subscriber = new Subscriber(this);
-        }
+            : this(
+                options.Build(),
+                "long-polling",
+                reconnectDelays,
+                eventTaskScheduler)
+        { }
 
         public BayeuxClient(
             WebSocketTransportOptions options,
             IEnumerable<TimeSpan> reconnectDelays = null,
             TaskScheduler eventTaskScheduler = null)
-        {
-            this.transport = options.Build(PublishEvents);
-            this.eventTaskScheduler = ChooseEventTaskScheduler(eventTaskScheduler);
-            this.connectLoop = new ConnectLoop("websocket", reconnectDelays, this);
-            this.subscriber = new Subscriber(this);
-        }
+            : this(
+                options.Build(),
+                "websocket",
+                reconnectDelays,
+                eventTaskScheduler)
+        { }
 
         [Obsolete("Use constructor with HttpLongPollingTransportOptions")]
         public BayeuxClient(
@@ -80,7 +94,8 @@ namespace Genesys.Bayeux.Client
             IEnumerable<TimeSpan> reconnectDelays = null,
             TaskScheduler eventTaskScheduler = null)
         {
-            this.transport = new HttpLongPollingTransport(httpPost, url, PublishEvents);
+            this.transport = new HttpLongPollingTransport(httpPost, url);
+            transport.SetEventPublisher(PublishEvents);
             this.eventTaskScheduler = ChooseEventTaskScheduler(eventTaskScheduler);
             this.connectLoop = new ConnectLoop("long-polling", reconnectDelays, this);
             this.subscriber = new Subscriber(this);
@@ -148,6 +163,8 @@ namespace Genesys.Bayeux.Client
             Disconnected,
             Connecting,
             Connected,
+
+            [Obsolete("Not used any more")]
             DisconnectedOnError,
         }
 

@@ -20,20 +20,24 @@ namespace Genesys.Bayeux.Client
         readonly Func<WebSocket> webSocketFactory;
         readonly Uri uri;
         readonly TimeSpan responseTimeout;
-        readonly Action<IEnumerable<JObject>> eventPublisher;
+        Action<IEnumerable<JObject>> eventPublisher;
 
         WebSocket webSocket;
         Task receiverLoopTask;
         CancellationTokenSource receiverLoopCancel;
 
-        readonly ConcurrentDictionary<string, TaskCompletionSource<JObject>> pendingRequests = new ConcurrentDictionary<string, TaskCompletionSource<JObject>>();
+        readonly ConcurrentDictionary<string, TaskCompletionSource<JObject>> pendingResponsePromises = new ConcurrentDictionary<string, TaskCompletionSource<JObject>>();
         long nextMessageId = 0;
 
-        public WebSocketTransport(Func<WebSocket> webSocketFactory, Uri uri, TimeSpan responseTimeout, Action<IEnumerable<JObject>> eventPublisher)
+        public WebSocketTransport(Func<WebSocket> webSocketFactory, Uri uri, TimeSpan responseTimeout)
         {
             this.webSocketFactory = webSocketFactory;
             this.uri = uri;
             this.responseTimeout = responseTimeout;
+        }
+
+        public void SetEventPublisher(Action<IEnumerable<JObject>> eventPublisher)
+        {
             this.eventPublisher = eventPublisher;
         }
 
@@ -50,8 +54,9 @@ namespace Genesys.Bayeux.Client
                 {
                     _ = webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
                 }
-                catch (Exception)
+                catch (Exception e)
                 {
+                    log.WarnException("WebSocket close failed", e);
                     // Nothing else to try.
                 }
 
@@ -85,7 +90,7 @@ namespace Genesys.Bayeux.Client
             receiverLoopTask = StartReceiverLoop(receiverLoopCancel.Token);
         }
 
-        public async Task StartReceiverLoop(CancellationToken cancelToken)
+        async Task StartReceiverLoop(CancellationToken cancelToken)
         {
             Exception fault;
 
@@ -119,16 +124,16 @@ namespace Genesys.Bayeux.Client
         {
             if (fault == null)
             {
-                foreach (var r in pendingRequests)
+                foreach (var r in pendingResponsePromises)
                     r.Value.SetCanceled();
             }
             else
             {
-                foreach (var r in pendingRequests)
+                foreach (var r in pendingResponsePromises)
                     r.Value.SetException(fault);
             }
 
-            pendingRequests.Clear();
+            pendingResponsePromises.Clear();
         }
 
         async Task<Stream> ReceiveMessage(CancellationToken cancellationToken)
@@ -168,7 +173,7 @@ namespace Genesys.Bayeux.Client
                     }
                     else
                     {
-                        var found = pendingRequests.TryRemove(messageId, out var requestTask);
+                        var found = pendingResponsePromises.TryRemove(messageId, out var requestTask);
 
                         if (found)
                             requestTask.SetResult(response);
@@ -184,7 +189,7 @@ namespace Genesys.Bayeux.Client
 
         public async Task<JObject> Request(IEnumerable<object> requests, CancellationToken cancellationToken)
         {
-            var responseTasks = new List<TaskCompletionSource<JObject>>();
+            var responsePromises = new List<TaskCompletionSource<JObject>>();
             var requestsJArray = JArray.FromObject(requests);
             var messageIds = new List<string>();
             foreach (var request in requestsJArray)
@@ -193,9 +198,9 @@ namespace Genesys.Bayeux.Client
                 request["id"] = messageId;
                 messageIds.Add(messageId);
 
-                var responseReceived = new TaskCompletionSource<JObject>();
-                pendingRequests.TryAdd(messageId, responseReceived);
-                responseTasks.Add(responseReceived);
+                var responsePromise = new TaskCompletionSource<JObject>();
+                pendingResponsePromises.TryAdd(messageId, responsePromise);
+                responsePromises.Add(responsePromise);
             }
             
             var messageStr = JsonConvert.SerializeObject(requestsJArray);
@@ -204,11 +209,11 @@ namespace Genesys.Bayeux.Client
 
             var timeoutTask = Task.Delay(responseTimeout, cancellationToken);
             Task completedTask = await Task.WhenAny(
-                Task.WhenAll(responseTasks.Select(t => t.Task)),
+                Task.WhenAll(responsePromises.Select(t => t.Task)),
                 timeoutTask);
 
             foreach (var id in messageIds)
-                pendingRequests.TryRemove(id, out var _);
+                pendingResponsePromises.TryRemove(id, out var _);
 
             if (completedTask == timeoutTask)
             {
@@ -217,7 +222,7 @@ namespace Genesys.Bayeux.Client
             }
             else
             {
-                return await responseTasks.First().Task;
+                return await responsePromises.First().Task;
             }
         }
 

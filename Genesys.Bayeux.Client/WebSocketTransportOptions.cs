@@ -16,13 +16,12 @@ namespace Genesys.Bayeux.Client
         /// </summary>
         public TimeSpan? ResponseTimeout { get; set; }
         
-        internal WebSocketTransport Build(Action<IEnumerable<JObject>> eventPublisher)
+        internal WebSocketTransport Build()
         {
             return new WebSocketTransport(
                 WebSocketFactory ?? (() => SystemClientWebSocket.CreateClientWebSocket()),
                 Uri ?? throw new Exception("Please set Uri."),
-                ResponseTimeout ?? TimeSpan.FromSeconds(65),
-                eventPublisher);
+                ResponseTimeout ?? TimeSpan.FromSeconds(65));
         }        
     }
 }

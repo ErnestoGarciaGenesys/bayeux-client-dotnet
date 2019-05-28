@@ -21,7 +21,7 @@ namespace Genesys.Bayeux.Client
         /// Enables the implementation of retry policies; useful for servers that may occasionally need a session refresh. Retries are general not supported by HttpClient, as (for some versions) SendAsync disposes the content of HttpRequestMessage. This means that a failed SendAsync call can't be retried, as the HttpRequestMessage can't be reused.
         /// </para>
         /// </summary>
-        public IHttpPost HttpPost;
+        public IHttpPost HttpPost { get; set; }
 
         /// <summary>
         /// HttpClient to use.
@@ -30,11 +30,11 @@ namespace Genesys.Bayeux.Client
         /// Set this property or HttpPost, but not both.
         /// </para>
         /// </summary>
-        public HttpClient HttpClient;
+        public HttpClient HttpClient { get; set; }
 
         public string Uri { get; set; }
 
-        internal HttpLongPollingTransport Build(Action<IEnumerable<JObject>> eventPublisher)
+        internal HttpLongPollingTransport Build()
         {
             if (Uri == null)
                 throw new Exception("Please set Uri.");
@@ -43,8 +43,7 @@ namespace Genesys.Bayeux.Client
             {
                 return new HttpLongPollingTransport(
                     new HttpClientHttpPost(HttpClient ?? new HttpClient()),
-                    Uri,
-                    eventPublisher);                    
+                    Uri);                    
             }
             else
             {
@@ -53,8 +52,7 @@ namespace Genesys.Bayeux.Client
 
                 return new HttpLongPollingTransport(
                     HttpPost,
-                    Uri,
-                    eventPublisher);
+                    Uri);
             }
         }        
     }
